@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Project, DocType, ProjectStatus, UserAccount, RevisionNotes, Role } from "../types";
+import { dataUrlToBlobUrl } from "../lib/fileStorage";
 import { 
   CheckCircle, 
   XCircle, 
@@ -18,6 +19,7 @@ import {
   Eye,
   Sparkles,
   Info,
+  ExternalLink,
   Trash2
 } from "lucide-react";
 
@@ -522,22 +524,32 @@ startxref
                       {selectedProject.pdfFileUrl ? (
                         <div className="w-full h-full flex flex-col items-center">
                           {(selectedProject.pdfFileName && selectedProject.pdfFileName.toLowerCase().endsWith(".pdf")) || (selectedProject.pdfFileUrl && selectedProject.pdfFileUrl.startsWith("data:application/pdf")) ? (
-                            <div className="w-full">
-                              <iframe 
-                                src={`${selectedProject.pdfFileUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-                                title="Actual PDF Preview"
-                                className="w-full h-[360px] rounded border border-slate-700 bg-white"
-                              />
-                              <div className="mt-2 text-center">
-                                <a 
-                                  href={selectedProject.pdfFileUrl} 
-                                  target="_blank" 
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 font-bold underline cursor-pointer"
-                                >
-                                  Buka PDF di Tab Baru ↗
-                                </a>
-                              </div>
+                            <div className="w-full flex flex-col items-center">
+                              {(() => {
+                                const pdfBlobUrl = dataUrlToBlobUrl(selectedProject.pdfFileUrl);
+                                return (
+                                  <>
+                                    <object 
+                                      data={`${pdfBlobUrl}#toolbar=0&navpanes=0&scrollbar=0`}
+                                      type="application/pdf"
+                                      className="w-full h-[360px] rounded border border-slate-700 bg-white"
+                                    >
+                                      <embed src={pdfBlobUrl} type="application/pdf" className="w-full h-[360px] rounded" />
+                                    </object>
+                                    <div className="mt-2 text-center">
+                                      <a 
+                                        href={pdfBlobUrl} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-600 transition shadow-xs cursor-pointer"
+                                      >
+                                        <ExternalLink className="w-3.5 h-3.5 text-indigo-400" />
+                                        Buka PDF Layar Penuh (Cetak Uncompressed 100%) ↗
+                                      </a>
+                                    </div>
+                                  </>
+                                );
+                              })()}
                             </div>
                           ) : (
                             <div className="w-full flex flex-col items-center">

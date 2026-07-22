@@ -64,3 +64,27 @@ export async function deleteFileFromIndexedDB(key: string): Promise<void> {
     console.warn(`[IndexedDB] Could not delete file key ${key}:`, e);
   }
 }
+
+// Convert base64 Data URL to a native Blob URL for unblocked PDF rendering in browsers
+export function dataUrlToBlobUrl(dataUrl: string): string {
+  if (!dataUrl) return "";
+  if (dataUrl.startsWith("blob:")) return dataUrl;
+  try {
+    const parts = dataUrl.split(",");
+    if (parts.length < 2) return dataUrl;
+    const mimeMatch = parts[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : "application/pdf";
+    const bstr = atob(parts[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    const blob = new Blob([u8arr], { type: mime });
+    return URL.createObjectURL(blob);
+  } catch (e) {
+    console.warn("Could not convert dataUrl to BlobUrl:", e);
+    return dataUrl;
+  }
+}
+

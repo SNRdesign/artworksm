@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from "react";
+import React, { useMemo } from "react";
 import { Project } from "../types";
-import { ShieldCheck, Printer, Stamp, FileCheck, CheckCircle2, FileText, Image as ImageIcon } from "lucide-react";
+import { ShieldCheck, Printer, Stamp, FileCheck, CheckCircle2, FileText, Image as ImageIcon, ExternalLink } from "lucide-react";
+import { dataUrlToBlobUrl } from "../lib/fileStorage";
 
 interface ContentApprovalSheetProps {
   project: Project;
@@ -27,7 +28,18 @@ export default function ContentApprovalSheet({ project, onPrint }: ContentApprov
     project.pdfFileUrl.match(/\.(png|jpg|jpeg|gif|webp)(\?.*)?$/i)
   );
 
-  const isPdfFile = project.pdfFileUrl && project.pdfFileUrl.startsWith("data:application/pdf");
+  const isPdfFile = project.pdfFileUrl && (
+    project.pdfFileUrl.startsWith("data:application/pdf") ||
+    project.pdfFileUrl.toLowerCase().includes("application/pdf") ||
+    (project.pdfFileName && project.pdfFileName.toLowerCase().endsWith(".pdf"))
+  );
+
+  const pdfBlobUrl = useMemo(() => {
+    if (project.pdfFileUrl && isPdfFile) {
+      return dataUrlToBlobUrl(project.pdfFileUrl);
+    }
+    return project.pdfFileUrl || "";
+  }, [project.pdfFileUrl, isPdfFile]);
 
   return (
     <div
@@ -127,15 +139,28 @@ export default function ContentApprovalSheet({ project, onPrint }: ContentApprov
               </span>
             </div>
           ) : isPdfFile ? (
-            <div className="my-2 z-10 bg-white border border-slate-200 rounded-lg p-2 shadow-xs">
-              <iframe
-                src={project.pdfFileUrl}
-                title={`Dokumen PDF ${project.name}`}
-                className="w-full h-80 border-0 rounded"
-              />
-              <span className="text-[9px] text-slate-400 font-mono mt-1 block text-center">
-                Pratinjau PDF Cetak: {project.pdfFileName || "Artwork_Document.pdf"}
-              </span>
+            <div className="my-2 z-10 bg-white border border-slate-200 rounded-lg p-3 shadow-xs flex flex-col items-center">
+              <object
+                data={`${pdfBlobUrl}#toolbar=0&navpanes=0&scrollbar=0`}
+                type="application/pdf"
+                className="w-full h-96 border-0 rounded"
+              >
+                <embed src={pdfBlobUrl} type="application/pdf" className="w-full h-96 rounded" />
+              </object>
+              <div className="mt-2 flex items-center justify-between w-full px-2">
+                <span className="text-[10px] text-slate-500 font-mono">
+                  Dokumen PDF: <strong className="text-slate-800">{project.pdfFileName || "Artwork_Document.pdf"}</strong>
+                </span>
+                <a
+                  href={pdfBlobUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg border border-indigo-200 transition shadow-xs"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Buka PDF Layar Penuh (Kualitas Cetak 100%) ↗
+                </a>
+              </div>
             </div>
           ) : (
             /* High quality visual document mockup canvas representation */

@@ -5,7 +5,8 @@
 
 import React, { useState } from "react";
 import { Project, DocType, ProjectStatus, UserAccount, Role } from "../types";
-import { PlusCircle, Image, CheckCircle, AlertOctagon, HelpCircle, History, RefreshCw, UploadCloud, FileText, Trash2, Sparkles, Loader2 } from "lucide-react";
+import { PlusCircle, Image, CheckCircle, AlertOctagon, HelpCircle, History, RefreshCw, UploadCloud, FileText, Trash2, Sparkles, Loader2, ExternalLink } from "lucide-react";
+import { dataUrlToBlobUrl } from "../lib/fileStorage";
 
 interface DesignPanelProps {
   currentUser: UserAccount;
@@ -311,7 +312,9 @@ export default function DesignPanel({
     docType: string,
     imageUrl?: string | null
   ) => {
-    const isPdf = fileName.toLowerCase().endsWith(".pdf");
+    const isPdf = fileName.toLowerCase().endsWith(".pdf") || (imageUrl ? imageUrl.includes("application/pdf") : false);
+    const pdfBlobUrl = imageUrl && isPdf ? dataUrlToBlobUrl(imageUrl) : imageUrl;
+
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-md font-sans text-left">
         {/* PDF Header Toolbar */}
@@ -321,7 +324,7 @@ export default function DesignPanel({
             <span className="truncate font-mono text-[9px] text-slate-200">{fileName} ({sizeStr})</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-slate-400 font-mono text-[8px] bg-slate-900/60 px-1 py-0.5 rounded border border-slate-700">Page 1 of 1</span>
+            <span className="text-slate-400 font-mono text-[8px] bg-slate-900/60 px-1 py-0.5 rounded border border-slate-700">Maksimal 10 MB (Kualitas Cetak 100%)</span>
             <div className="h-4 w-[1px] bg-slate-700"></div>
             <span className="text-slate-400 font-mono text-[8px] bg-slate-900/60 px-1 py-0.5 rounded border border-slate-700 font-bold text-indigo-400">PDF PREVIEW</span>
           </div>
@@ -336,19 +339,22 @@ export default function DesignPanel({
             <div className="bg-white border border-slate-300 shadow-xl rounded p-3 relative w-full max-w-sm flex flex-col items-center justify-center select-none overflow-hidden min-h-[180px]">
               {isPdf ? (
                 <div className="w-full flex flex-col items-center">
-                  <iframe 
-                    src={`${imageUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-                    title="PDF Preview"
-                    className="w-full h-[180px] rounded border border-slate-200"
-                  />
+                  <object 
+                    data={`${pdfBlobUrl}#toolbar=0&navpanes=0&scrollbar=0`}
+                    type="application/pdf"
+                    className="w-full h-[200px] rounded border border-slate-200"
+                  >
+                    <embed src={pdfBlobUrl || undefined} type="application/pdf" className="w-full h-[200px] rounded" />
+                  </object>
                   <div className="mt-2 text-center">
                     <a 
-                      href={imageUrl} 
+                      href={pdfBlobUrl || "#"} 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
+                      className="inline-flex items-center gap-1.5 text-[11px] text-indigo-600 hover:text-indigo-800 font-bold bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg border border-indigo-200 transition shadow-xs cursor-pointer"
                     >
-                      Buka PDF di Tab Baru ↗
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      Buka PDF Layar Penuh (Cetak Uncompressed 100%) ↗
                     </a>
                   </div>
                 </div>
@@ -431,6 +437,12 @@ const fileToBase64 = (file: File): Promise<string> => {
 };
 
   const startScanning = async (fileName: string, fileSizeStr: string, isEditing: boolean = false, fileObj?: File) => {
+    if (fileObj && fileObj.size > 10 * 1024 * 1024) {
+      const mbSize = (fileObj.size / (1024 * 1024)).toFixed(1);
+      setErrorMessage(`Ukuran berkas melebihi batas maksimal 10 MB (Ukuran berkas Anda: ${mbSize} MB). Harap pilih berkas PDF/gambar di bawah 10 MB.`);
+      return;
+    }
+
     const isEdit = isEditing;
     if (isEdit) {
       setIsEditScanning(true);
