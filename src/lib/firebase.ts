@@ -41,11 +41,17 @@ export function subscribeUsers(callback: (users: UserAccount[]) => void) {
 
 // Subscribe to Projects collection
 export function subscribeProjects(callback: (projects: Project[]) => void) {
-  return onSnapshot(collection(db, PROJECTS_COL), (snapshot) => {
-    const list: Project[] = snapshot.docs.map((docSnap) => docSnap.data() as Project);
+  return onSnapshot(collection(db, PROJECTS_COL), async (snapshot) => {
+    const rawList: Project[] = snapshot.docs.map((docSnap) => docSnap.data() as Project);
+    
+    // Hydrate full uncompressed file URLs from IndexedDB or Firestore subcollection chunks
+    const hydratedList = await Promise.all(
+      rawList.map((p) => hydrateProjectFiles(p))
+    );
+
     // Sort projects by createdAt descending
-    list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    callback(list);
+    hydratedList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    callback(hydratedList);
   }, (err) => {
     console.error("Firestore projects subscription error:", err);
   });
@@ -73,11 +79,122 @@ export async function saveUserToFirestore(user: UserAccount) {
   }
 }
 
-// Save or Update a Project
+import { saveFileToIndexedDB, getFileFromIndexedDB } from "./fileStorage";
+
+const CHUNK_SIZE = 600000; // 600KB per chunk to safely fit within Firestore 1MB document limit
+
+async function saveChunksToFirestore(projectId: string, subColName: string, fullDataUrl: string) {
+  if (!fullDataUrl) return;
+  try {
+    const totalChunks = Math.ceil(fullDataUrl.length / CHUNK_SIZE);
+    const chunksCol = collection(db, PROJECTS_COL, projectId, subColName);
+    const existingSnap = await getDocs(chunksCol);
+    
+    const batch = writeBatch(db);
+    existingSnap.docs.forEach((d) => batch.delete(d.ref));
+    
+    for (let i = 0; i < totalChunks; i++) {
+      const chunkStr = fullDataUrl.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+      const chunkRef = doc(chunksCol, `chunk_${i}`);
+      batch.set(chunkRef, { index: i, data: chunkStr });
+    }
+    await batch.commit();
+  } catch (err) {
+    console.error(`Error saving ${subColName} chunks to Firestore for project ${projectId}:`, err);
+  }
+}
+
+export async function loadChunksFromFirestore(projectId: string, subColName: string): Promise<string> {
+  try {
+    const chunksCol = collection(db, PROJECTS_COL, projectId, subColName);
+    const snap = await getDocs(chunksCol);
+    if (snap.empty) return "";
+    const sorted = snap.docs
+      .map((d) => d.data() as { index: number; data: string })
+      .sort((a, b) => a.index - b.index);
+    return sorted.map((c) => c.data).join("");
+  } catch (err) {
+    console.error(`Error loading ${subColName} chunks from Firestore for project ${projectId}:`, err);
+    return "";
+  }
+}
+
+export async function hydrateProjectFiles(project: Project): Promise<Project> {
+  let pdfUrl = project.pdfFileUrl;
+  let nieUrl = project.nieFileUrl;
+
+  // 1. Check local IndexedDB first
+  if (!pdfUrl) {
+    const cachedPdf = await getFileFromIndexedDB(`pdf_${project.id}`);
+    if (cachedPdf) pdfUrl = cachedPdf;
+  }
+  if (!nieUrl) {
+    const cachedNie = await getFileFromIndexedDB(`nie_${project.id}`);
+    if (cachedNie) nieUrl = cachedNie;
+  }
+
+  // 2. Fetch chunks from Firestore if flagged and missing
+  if (!pdfUrl && (project as any).hasPdfChunks) {
+    pdfUrl = await loadChunksFromFirestore(project.id, "pdfChunks");
+    if (pdfUrl) {
+      await saveFileToIndexedDB(`pdf_${project.id}`, pdfUrl);
+    }
+  }
+
+  if (!nieUrl && (project as any).hasNieChunks) {
+    nieUrl = await loadChunksFromFirestore(project.id, "nieChunks");
+    if (nieUrl) {
+      await saveFileToIndexedDB(`nie_${project.id}`, nieUrl);
+    }
+  }
+
+  return {
+    ...project,
+    pdfFileUrl: pdfUrl || project.pdfFileUrl,
+    nieFileUrl: nieUrl || project.nieFileUrl,
+  };
+}
+
+// Save or Update a Project losslessly
 export async function saveProjectToFirestore(project: Project) {
   try {
-    await setDoc(doc(db, PROJECTS_COL, project.id), project, { merge: true });
-  } catch (err) {
+    let pdfUrlToStore: string | undefined = project.pdfFileUrl;
+    let nieUrlToStore: string | undefined = project.nieFileUrl;
+    let hasPdfChunks = Boolean((project as any).hasPdfChunks);
+    let hasNieChunks = Boolean((project as any).hasNieChunks);
+
+    if (project.pdfFileUrl) {
+      await saveFileToIndexedDB(`pdf_${project.id}`, project.pdfFileUrl);
+      if (project.pdfFileUrl.length > CHUNK_SIZE) {
+        hasPdfChunks = true;
+        await saveChunksToFirestore(project.id, "pdfChunks", project.pdfFileUrl);
+        pdfUrlToStore = undefined; // Kept in chunks subcollection & IndexedDB
+      } else {
+        hasPdfChunks = false;
+      }
+    }
+
+    if (project.nieFileUrl) {
+      await saveFileToIndexedDB(`nie_${project.id}`, project.nieFileUrl);
+      if (project.nieFileUrl.length > CHUNK_SIZE) {
+        hasNieChunks = true;
+        await saveChunksToFirestore(project.id, "nieChunks", project.nieFileUrl);
+        nieUrlToStore = undefined; // Kept in chunks subcollection & IndexedDB
+      } else {
+        hasNieChunks = false;
+      }
+    }
+
+    const docToSave = {
+      ...project,
+      pdfFileUrl: pdfUrlToStore || null,
+      nieFileUrl: nieUrlToStore || null,
+      hasPdfChunks,
+      hasNieChunks,
+    };
+
+    await setDoc(doc(db, PROJECTS_COL, project.id), docToSave, { merge: true });
+  } catch (err: any) {
     console.error("Error saving project to Firestore:", err);
   }
 }

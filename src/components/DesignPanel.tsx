@@ -406,6 +406,17 @@ export default function DesignPanel({
     );
   };
 
+const readOriginalFileUncompressed = (fileObj: File): Promise<string> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve((reader.result as string) || "");
+    };
+    reader.onerror = () => resolve("");
+    reader.readAsDataURL(fileObj);
+  });
+};
+
 const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -432,16 +443,13 @@ const fileToBase64 = (file: File): Promise<string> => {
     }
 
     if (fileObj) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
+      readOriginalFileUncompressed(fileObj).then((dataUrl) => {
         if (isEdit) {
           setEditUploadedImageUrl(dataUrl);
         } else {
           setUploadedImageUrl(dataUrl);
         }
-      };
-      reader.readAsDataURL(fileObj);
+      });
     } else {
       if (isEdit) {
         setEditUploadedImageUrl(null);
