@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Artwork Approval System Sansico Medica",
+  "description": "Sistem otomatisasi verifikasi dan persetujuan artwork medis Sansico Medica untuk kepatuhan nomor izin edar (NIE).",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

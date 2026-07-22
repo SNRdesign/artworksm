@@ -1,0 +1,50 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Accounts",
+      "description": "User accounts for Sansico Artwork Approval System",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "fullName": { "type": "string" },
+        "role": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "invitationStatus": { "type": "string" },
+        "invitedAt": { "type": "string" },
+        "invitedBy": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "username", "email", "fullName", "role", "isActive"]
+    },
+    "projects": {
+      "title": "Artwork Projects",
+      "description": "Artwork approval workflow projects",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "docType": { "type": "string" },
+        "version": { "type": "number" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["id", "name", "docType", "status", "createdAt"]
+    },
+    "notifications": {
+      "title": "Notification Logs",
+      "description": "System log notifications",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "type": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "type", "message"]
+    }
+  }
+}
