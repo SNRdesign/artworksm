@@ -237,19 +237,51 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
-
   const [currentUser, setCurrentUser] = useState<UserAccount>(() => {
-    return users.find(u => u.role === Role.DESAIN) || users[0];
+    try {
+      const savedSession = localStorage.getItem("sansico_session_user");
+      if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        if (parsed && parsed.id) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to parse session user from localStorage", e);
+    }
+    return DEFAULT_USERS[0];
+  });
+
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
+    try {
+      const savedSession = localStorage.getItem("sansico_session_user");
+      if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        return Boolean(parsed && parsed.id);
+      }
+    } catch (e) {
+      console.warn("Failed to check session from localStorage", e);
+    }
+    return false;
   });
 
   const handleLogin = (user: UserAccount) => {
     setCurrentUser(user);
     setIsLoggedIn(true);
+    try {
+      localStorage.setItem("sansico_session_user", JSON.stringify(user));
+    } catch (e) {
+      console.warn("Failed to save user session to localStorage", e);
+    }
   };
 
   const handleLogout = () => {
     setIsLoggedIn(false);
+    try {
+      localStorage.removeItem("sansico_session_user");
+    } catch (e) {
+      console.warn("Failed to remove user session from localStorage", e);
+    }
   };
 
   // Selected project for viewing final approval sheet
@@ -328,6 +360,40 @@ export default function App() {
       console.warn("Failed to save simulated time to localStorage:", e);
     }
   }, [currentSimulatedTime]);
+
+  useEffect(() => {
+    if (isLoggedIn && currentUser) {
+      try {
+        localStorage.setItem("sansico_session_user", JSON.stringify(currentUser));
+      } catch (e) {
+        console.warn("Failed to sync current user session:", e);
+      }
+    }
+  }, [currentUser, isLoggedIn]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("sansico_projects", JSON.stringify(projects));
+    } catch (e) {
+      console.warn("Failed to sync projects to localStorage:", e);
+    }
+  }, [projects]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("sansico_users", JSON.stringify(users));
+    } catch (e) {
+      console.warn("Failed to sync users to localStorage:", e);
+    }
+  }, [users]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("sansico_notifications", JSON.stringify(notifications));
+    } catch (e) {
+      console.warn("Failed to sync notifications to localStorage:", e);
+    }
+  }, [notifications]);
 
   // --- FIRESTORE REALTIME SUBSCRIPTIONS & INITIAL SEEDING ---
   useEffect(() => {
@@ -571,6 +637,7 @@ export default function App() {
       invitedBy: currentUser ? currentUser.fullName : "Administrator",
       createdAt: currentSimulatedTime,
     };
+    setUsers(prev => [newUser, ...prev.filter(u => u.id !== newUser.id)]);
     saveUserToFirestore(newUser);
     const notif: NotificationLog = {
       id: `sys-invite-${Date.now()}`,
@@ -578,6 +645,7 @@ export default function App() {
       type: "INFO",
       message: `[UNDANGAN EMAIL] Administrator mengirim undangan pendaftaran ke "${email}" sebagai ${role}. Status: Menunggu Pengisian Formulir User.`,
     };
+    setNotifications(prev => [notif, ...prev]);
     saveNotificationToFirestore(notif);
   };
 
@@ -593,6 +661,7 @@ export default function App() {
         invitationStatus: "PENDING_APPROVAL",
         isActive: false,
       };
+      setUsers(prev => prev.map(u => u.id === existingUser.id ? updatedUser : u));
       saveUserToFirestore(updatedUser);
       const notif: NotificationLog = {
         id: `sys-confirm-${Date.now()}`,
@@ -600,6 +669,7 @@ export default function App() {
         type: "INFO",
         message: `[FORMULIR DITERIMA] Pengguna "${updatedUser.fullName}" (${updatedUser.email}) telah mengisi formulir konfirmasi email. Menunggu ACC / Persetujuan dari Administrator.`,
       };
+      setNotifications(prev => [notif, ...prev]);
       saveNotificationToFirestore(notif);
     } else {
       const newUser: UserAccount = {
@@ -615,6 +685,7 @@ export default function App() {
         invitedBy: "Pengisian Formulir Mandiri",
         createdAt: currentSimulatedTime,
       };
+      setUsers(prev => [newUser, ...prev]);
       saveUserToFirestore(newUser);
       const notif: NotificationLog = {
         id: `sys-reg-${Date.now()}`,
@@ -622,6 +693,7 @@ export default function App() {
         type: "INFO",
         message: `[FORMULIR PENDAFTARAN] Pengguna baru "${newUser.fullName}" (${newUser.email}) telah mengirimkan formulir pendaftaran. Menunggu ACC / Persetujuan Administrator.`,
       };
+      setNotifications(prev => [notif, ...prev]);
       saveNotificationToFirestore(notif);
     }
   };
@@ -630,6 +702,7 @@ export default function App() {
     const userAcc = users.find(u => u.id === userId);
     if (userAcc) {
       const updatedUser: UserAccount = { ...userAcc, password: newPass };
+      setUsers(prev => prev.map(u => u.id === userId ? updatedUser : u));
       saveUserToFirestore(updatedUser);
       const notif: NotificationLog = {
         id: `sys-pass-${Date.now()}`,
@@ -637,6 +710,7 @@ export default function App() {
         type: "INFO",
         message: `[KATA SANDI DIUBAH] Administrator memperbarui kata sandi untuk akun "${userAcc.fullName}".`,
       };
+      setNotifications(prev => [notif, ...prev]);
       saveNotificationToFirestore(notif);
     }
   };
@@ -649,6 +723,7 @@ export default function App() {
         isActive: true,
         invitationStatus: "ACTIVE",
       };
+      setUsers(prev => prev.map(u => u.id === userId ? updatedUser : u));
       saveUserToFirestore(updatedUser);
       const notif: NotificationLog = {
         id: `sys-approve-${Date.now()}`,
@@ -656,6 +731,7 @@ export default function App() {
         type: "INFO",
         message: `[KONFIRMASI APPROVED] Akun "${userAcc.fullName}" (${userAcc.email}) telah disetujui oleh Administrator. Pengguna kini dapat masuk ke Portal.`,
       };
+      setNotifications(prev => [notif, ...prev]);
       saveNotificationToFirestore(notif);
     }
   };
@@ -665,6 +741,7 @@ export default function App() {
     if (userAcc) {
       const nextActive = !userAcc.isActive;
       const updatedUser: UserAccount = { ...userAcc, isActive: nextActive };
+      setUsers(prev => prev.map(u => u.id === userId ? updatedUser : u));
       saveUserToFirestore(updatedUser);
       if (currentUser.id === userId) {
         setCurrentUser(updatedUser);
@@ -685,6 +762,7 @@ export default function App() {
       "Konfirmasi Hapus Akun",
       `Apakah Anda yakin ingin menghapus akun "${userToDel.fullName}" (${userToDel.role}) secara permanen? Tindakan ini tidak dapat dibatalkan.`,
       () => {
+        setUsers(prev => prev.filter(u => u.id !== userId));
         deleteUserFromFirestore(userId);
         const notif: NotificationLog = {
           id: `sys-${Date.now()}`,
@@ -692,6 +770,7 @@ export default function App() {
           type: "WARNING",
           message: `[AKUN] Akun "${userToDel.fullName}" telah dihapus secara permanen oleh Administrator.`,
         };
+        setNotifications(prev => [notif, ...prev]);
         saveNotificationToFirestore(notif);
       }
     );
@@ -747,6 +826,7 @@ export default function App() {
       lastStatusChangedAt: currentSimulatedTime,
     };
 
+    setProjects(prev => [newProject, ...prev]);
     saveProjectToFirestore(newProject);
 
     // Push immediate audit log notification
@@ -756,6 +836,7 @@ export default function App() {
       type: "INFO",
       message: `[ALUR KERJA] Proyek "${name}" (V1) telah diinisiasi oleh ${currentUser.fullName} via file PDF "${pdfFileName || 'artwork.pdf'}" dan dikirim ke antrean Tim Produk.`,
     };
+    setNotifications(prev => [notif, ...prev]);
     saveNotificationToFirestore(notif);
   };
 
@@ -821,6 +902,7 @@ export default function App() {
       lastStatusChangedAt: currentSimulatedTime,
     };
 
+    setProjects(prev => prev.map(p => p.id === projectId ? updatedProj : p));
     saveProjectToFirestore(updatedProj);
 
     const notif: NotificationLog = {
@@ -829,6 +911,7 @@ export default function App() {
       type: "INFO",
       message: `[REVISI OK] Proyek "${newProjectName}" diperbarui ke V${nextVer} oleh Desainer via file PDF "${finalPdfName || 'artwork_revised.pdf'}" dan siap ditinjau kembali oleh Tim Produk.`,
     };
+    setNotifications(prev => [notif, ...prev]);
     saveNotificationToFirestore(notif);
   };
 
@@ -854,6 +937,7 @@ export default function App() {
         lastStatusChangedAt: currentSimulatedTime,
       };
 
+      setProjects(prev => prev.map(p => p.id === projectId ? updatedProj : p));
       saveProjectToFirestore(updatedProj);
 
       const notif: NotificationLog = {
@@ -862,6 +946,7 @@ export default function App() {
         type: "INFO",
         message: `[ALUR KERJA] Proyek "${proj.name}" disetujui (ACC) oleh Tim Produk (${picName}). Stempel Digital Produk berhasil diterbitkan.`,
       };
+      setNotifications(prev => [notif, ...prev]);
       saveNotificationToFirestore(notif);
     }
   };
@@ -886,6 +971,7 @@ export default function App() {
         lastStatusChangedAt: currentSimulatedTime,
       };
 
+      setProjects(prev => prev.map(p => p.id === projectId ? updatedProj : p));
       saveProjectToFirestore(updatedProj);
 
       const notif: NotificationLog = {
@@ -894,6 +980,7 @@ export default function App() {
         type: "WARNING",
         message: `[DITOLAK] Proyek "${proj.name}" (V${proj.version}) DITOLAK oleh Tim Produk (${picName}) karena kesalahan pada komponen "${notes.component}". Status kembali ke Tim Desain untuk revisi.`,
       };
+      setNotifications(prev => [notif, ...prev]);
       saveNotificationToFirestore(notif);
     }
   };
@@ -910,6 +997,7 @@ export default function App() {
         updatedAt: currentSimulatedTime,
       };
 
+      setProjects(prev => prev.map(p => p.id === projectId ? updatedProj : p));
       saveProjectToFirestore(updatedProj);
 
       if (fileName) {
@@ -919,6 +1007,7 @@ export default function App() {
           type: "INFO",
           message: `[UNGGAH NIE] Berkas dokumen NIE pemerintah asli "${fileName}" berhasil diunggah untuk proyek "${proj.name}". Komparasi visual kini aktif.`,
         };
+        setNotifications(prev => [notif, ...prev]);
         saveNotificationToFirestore(notif);
       }
     }
@@ -950,6 +1039,7 @@ export default function App() {
         holdAlarmSet: false,
       };
 
+      setProjects(prev => prev.map(p => p.id === projectId ? updatedProj : p));
       saveProjectToFirestore(updatedProj);
 
       const notif: NotificationLog = {
@@ -958,6 +1048,7 @@ export default function App() {
         type: "INFO",
         message: `[RILIS UTAMA] ✓ BERHASIL DI-RELEASE! Proyek "${proj.name}" telah ditandatangani penuh oleh Purchasing (${picName}) dan dikunci permanen. Dokumen siap dicetak!`,
       };
+      setNotifications(prev => [notif, ...prev]);
       saveNotificationToFirestore(notif);
     }
   };
@@ -976,6 +1067,7 @@ export default function App() {
         lastStatusChangedAt: currentSimulatedTime,
       };
 
+      setProjects(prev => prev.map(p => p.id === projectId ? updatedProj : p));
       saveProjectToFirestore(updatedProj);
 
       const notif: NotificationLog = {
@@ -984,6 +1076,7 @@ export default function App() {
         type: "WARNING",
         message: `[HOLD CETAKAN] Proyek "${proj.name}" ditangguhkan (HOLD) oleh Purchasing dengan estimasi batas hingga ${new Date(holdUntil).toLocaleString("id-ID")}. Alasan: ${reason}.`,
       };
+      setNotifications(prev => [notif, ...prev]);
       saveNotificationToFirestore(notif);
     }
   };
@@ -999,6 +1092,7 @@ export default function App() {
         updatedAt: currentSimulatedTime,
       };
 
+      setProjects(prev => prev.map(p => p.id === projectId ? updatedProj : p));
       saveProjectToFirestore(updatedProj);
 
       const notif: NotificationLog = {
@@ -1007,6 +1101,7 @@ export default function App() {
         type: "INFO",
         message: `[HOLD CETAKAN] Waktu Hold untuk Proyek "${proj.name}" ditambah hingga ${new Date(newHoldUntil).toLocaleString("id-ID")}.`,
       };
+      setNotifications(prev => [notif, ...prev]);
       saveNotificationToFirestore(notif);
     }
   };
