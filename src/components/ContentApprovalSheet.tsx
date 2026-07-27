@@ -7,6 +7,7 @@ import React, { useMemo } from "react";
 import { Project } from "../types";
 import { ShieldCheck, Printer, Stamp, FileCheck, CheckCircle2, FileText, Image as ImageIcon, ExternalLink } from "lucide-react";
 import { dataUrlToBlobUrl } from "../lib/fileStorage";
+import { printApprovalSheetA4 } from "../lib/printUtils";
 
 interface ContentApprovalSheetProps {
   project: Project;
@@ -15,10 +16,9 @@ interface ContentApprovalSheetProps {
 
 export default function ContentApprovalSheet({ project, onPrint }: ContentApprovalSheetProps) {
   const handlePrint = () => {
+    printApprovalSheetA4(project);
     if (onPrint) {
       onPrint();
-    } else {
-      window.print();
     }
   };
 

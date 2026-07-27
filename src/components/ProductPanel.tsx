@@ -598,7 +598,7 @@ startxref
                           </div>
 
                           <div className="my-3 space-y-1.5 text-[9px] text-slate-600 font-mono relative z-10">
-                            <div>NIE: <span className="font-bold text-slate-800 bg-slate-100 px-1 py-0.5 rounded">{selectedProject.nieNumber || "KEMENKES RI AKD ..."}</span></div>
+                            <div>NIE: <span className="font-bold text-slate-800 bg-slate-100 px-1 py-0.5 rounded">{selectedProject.nieNumber || "Belum Ada / Tidak Diisi"}</span></div>
                             <div className="text-[8px] text-slate-400 whitespace-pre-wrap leading-normal font-sans border-t border-slate-100 pt-1 font-medium max-h-[70px] overflow-hidden">
                               {selectedProject.artworkText}
                             </div>

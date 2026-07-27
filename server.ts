@@ -53,14 +53,17 @@ Please extract the following information accurately from the text or visual cont
 1. Product/Project Name (e.g. "Sansico Infusion Bag 500ml", "Sansico Syringe Set 10ml")
 2. Document Type (Must be exactly one of: "Inner Box", "Label Botol", "IFU", "QC Pass Certif")
 3. Product Code / REF code (Must extract the actual REF / reference number, printed on the design. Maintain prefix 'REF' if present, e.g. "REF-SYN-10ML" or "REF 1002301")
-4. NIE Number / Nomor Izin Edar (Indonesian Kemenkes registration number. Format: "KEMENKES RI AKD XXXXXXXXXXX" or "KEMENKES RI AKL XXXXXXXXXXX" where X is a digit. Extract the exact value printed on the design).
+4. NIE Number / Nomor Izin Edar (Indonesian Kemenkes registration number printed on the design, e.g. "KEMENKES RI AKD 20101221725", "KEMENKES RI AKL 20902511032", "KEMENKES RI PKRT 20501110092", or "AKD 20902120034"). 
+   - Search the document text carefully for any occurrences of "KEMENKES", "AKD", "AKL", "PKRT", "NIE", or "Izin Edar".
+   - Extract the EXACT registration code printed on the artwork.
+   - If no NIE / AKD / AKL / PKRT registration number is printed anywhere on the document, return an empty string "". DO NOT fabricate or invent a fake NIE number.
 5. All legible artwork text content printed on the layout.
 
-Search the text carefully for any registration code resembling Indonesian Kemenkes AKD/AKL formats or standard REF codes, and output it.
+Search the text carefully for any registration code resembling Indonesian Kemenkes AKD/AKL/PKRT formats or standard REF codes, and output it.
 Ensure the output matches the exact text on the document.`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-flash-latest",
         contents: [filePart, prompt],
         config: {
           responseMimeType: "application/json",
@@ -70,7 +73,7 @@ Ensure the output matches the exact text on the document.`;
               name: { type: Type.STRING, description: "Extracted name of the medical device product." },
               docType: { type: Type.STRING, description: "Document type. Must be exactly 'Inner Box', 'Label Botol', 'IFU', or 'QC Pass Certif'." },
               refCode: { type: Type.STRING, description: "The product's REF code / reference number." },
-              nieNumber: { type: Type.STRING, description: "The Indonesian KEMENKES RI AKD/AKL registration number." },
+              nieNumber: { type: Type.STRING, description: "The Indonesian KEMENKES RI AKD/AKL/PKRT registration number." },
               artworkText: { type: Type.STRING, description: "All legible text content found on the artwork design." }
             },
             required: ["name", "docType", "refCode", "nieNumber", "artworkText"]

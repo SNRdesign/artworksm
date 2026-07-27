@@ -29,6 +29,7 @@ import ProductPanel from "./components/ProductPanel";
 import PurchasingPanel from "./components/PurchasingPanel";
 import ContentApprovalSheet from "./components/ContentApprovalSheet";
 import LoginPage from "./components/LoginPage";
+import { printApprovalSheetA4 } from "./lib/printUtils";
 
 import {
   subscribeUsers,
@@ -1795,21 +1796,21 @@ export default function App() {
             <div className="flex-grow overflow-y-auto pr-1">
               <ContentApprovalSheet 
                 project={viewingSheetProject} 
-                onPrint={() => window.print()}
+                onPrint={() => printApprovalSheetA4(viewingSheetProject)}
               />
             </div>
 
             <div className="border-t border-slate-100 pt-3 mt-4 flex justify-between items-center no-print">
               <span className="text-[10px] text-slate-400 font-mono">
-                Sistem Otentikasi Sansico Medica
+                Sistem Otentikasi Sansico Medica (A4 Layout Automatic)
               </span>
               <button
-                onClick={() => window.print()}
-                className="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-1.5 px-4 rounded-lg transition flex items-center gap-1 shadow-sm cursor-pointer"
+                onClick={() => printApprovalSheetA4(viewingSheetProject)}
+                className="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-2 px-4 rounded-lg transition flex items-center gap-1.5 shadow-sm cursor-pointer"
                 id="btn-print-action"
               >
-                <Printer className="w-4 h-4" />
-                Cetak Lembar Pengesahan
+                <Printer className="w-4 h-4 text-emerald-400" />
+                Cetak Lembar Pengesahan (A4)
               </button>
             </div>
           </div>

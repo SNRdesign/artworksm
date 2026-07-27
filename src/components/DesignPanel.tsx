@@ -136,10 +136,11 @@ function extractMetadataFromPdf(fileName: string, fallbackDocType: DocType) {
     }
   }
   
-  const nieMatch = fileName.match(/(AK[DL])\s*[-_]?\s*(\d+)/i);
+  const nieMatch = fileName.match(/(AK[DL]|PKRT)\s*[-_]?\s*(\d+)/i);
   let nieNumber = "";
   if (nieMatch) {
-    nieNumber = `KEMENKES RI ${nieMatch[1].toUpperCase()} ${nieMatch[2]}`;
+    const type = nieMatch[1].toUpperCase();
+    nieNumber = `KEMENKES RI ${type} ${nieMatch[2]}`;
   } else {
     const generalNieMatch = fileName.match(/\b(\d{11})\b/);
     if (generalNieMatch) {
@@ -147,7 +148,7 @@ function extractMetadataFromPdf(fileName: string, fallbackDocType: DocType) {
       const niePrefix = isImport ? "AKL" : "AKD";
       nieNumber = `KEMENKES RI ${niePrefix} ${generalNieMatch[1]}`;
     } else {
-      nieNumber = "KEMENKES RI AKD 20206620018";
+      nieNumber = "";
     }
   }
   
@@ -182,14 +183,23 @@ function splitRefCode(fullCode: string): { prefix: string; suffix: string } {
 function splitNieNumber(fullNie: string): { prefix: string; suffix: string } {
   if (!fullNie) return { prefix: "KEMENKES RI AKD", suffix: "" };
   const trimmed = fullNie.trim();
-  if (trimmed.toUpperCase().includes("AKL")) {
-    const idx = trimmed.toUpperCase().indexOf("AKL");
+  const upper = trimmed.toUpperCase();
+
+  if (upper.includes("AKL")) {
+    const idx = upper.indexOf("AKL");
     const suffix = trimmed.substring(idx + 3).trim();
     return { prefix: "KEMENKES RI AKL", suffix };
-  } else if (trimmed.toUpperCase().includes("AKD")) {
-    const idx = trimmed.toUpperCase().indexOf("AKD");
+  } else if (upper.includes("AKD")) {
+    const idx = upper.indexOf("AKD");
     const suffix = trimmed.substring(idx + 3).trim();
     return { prefix: "KEMENKES RI AKD", suffix };
+  } else if (upper.includes("PKRT")) {
+    const idx = upper.indexOf("PKRT");
+    const suffix = trimmed.substring(idx + 4).trim();
+    return { prefix: "KEMENKES RI PKRT", suffix };
+  } else if (upper.startsWith("KEMENKES RI")) {
+    const suffix = trimmed.substring(11).trim();
+    return { prefix: "KEMENKES RI", suffix };
   }
   return { prefix: "KEMENKES RI AKD", suffix: trimmed };
 }
@@ -387,7 +397,7 @@ export default function DesignPanel({
               </div>
 
               <div className="my-3 space-y-1 text-[9px] text-slate-600 font-mono">
-                <div>NIE: <span className="font-bold text-slate-800">{nie || "KEMENKES RI AKD ..."}</span></div>
+                <div>NIE: <span className="font-bold text-slate-800">{nie || "Belum Ada / Tidak Diisi"}</span></div>
                 <div className="text-[8px] text-slate-400 whitespace-pre-wrap leading-tight font-medium max-h-[70px] overflow-hidden">
                   {text || "Teks desain layout..."}
                 </div>
@@ -978,13 +988,24 @@ const fileToBase64 = (file: File): Promise<string> => {
                     >
                       <option value="KEMENKES RI AKD">KEMENKES RI AKD</option>
                       <option value="KEMENKES RI AKL">KEMENKES RI AKL</option>
+                      <option value="KEMENKES RI PKRT">KEMENKES RI PKRT</option>
+                      <option value="KEMENKES RI">KEMENKES RI</option>
                     </select>
                     <input
                       type="text"
                       required={editingProject?.docType === DocType.INNER_BOX || editingProject?.docType === DocType.POUCH}
                       placeholder={(editingProject?.docType === DocType.INNER_BOX || editingProject?.docType === DocType.POUCH) ? "Input manual angka NIE, contoh: 20902120034" : "Opsional, contoh: 20902120034"}
                       value={editNieSuffix}
-                      onChange={(e) => setEditNieSuffix(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val.toUpperCase().includes("KEMENKES") || val.toUpperCase().includes("AKD") || val.toUpperCase().includes("AKL") || val.toUpperCase().includes("PKRT")) {
+                          const { prefix, suffix } = splitNieNumber(val);
+                          setEditNiePrefix(prefix);
+                          setEditNieSuffix(suffix);
+                        } else {
+                          setEditNieSuffix(val);
+                        }
+                      }}
                       className="flex-1 text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 font-mono font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
@@ -1301,13 +1322,24 @@ const fileToBase64 = (file: File): Promise<string> => {
                     >
                       <option value="KEMENKES RI AKD">KEMENKES RI AKD</option>
                       <option value="KEMENKES RI AKL">KEMENKES RI AKL</option>
+                      <option value="KEMENKES RI PKRT">KEMENKES RI PKRT</option>
+                      <option value="KEMENKES RI">KEMENKES RI</option>
                     </select>
                     <input
                       type="text"
                       required={docType === DocType.INNER_BOX || docType === DocType.POUCH}
                       placeholder={(docType === DocType.INNER_BOX || docType === DocType.POUCH) ? "Input manual angka NIE, contoh: 20902120034" : "Opsional, contoh: 20902120034"}
                       value={nieSuffix}
-                      onChange={(e) => setNieSuffix(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val.toUpperCase().includes("KEMENKES") || val.toUpperCase().includes("AKD") || val.toUpperCase().includes("AKL") || val.toUpperCase().includes("PKRT")) {
+                          const { prefix, suffix } = splitNieNumber(val);
+                          setNiePrefix(prefix);
+                          setNieSuffix(suffix);
+                        } else {
+                          setNieSuffix(val);
+                        }
+                      }}
                       className="flex-1 text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 font-mono font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
