@@ -373,11 +373,11 @@ export default function App() {
 
   useEffect(() => {
     try {
-      // Truncate heavy base64 strings specifically for localStorage to avoid 5MB quota errors
+      // Strip heavy base64 strings specifically for localStorage to avoid 5MB quota errors without corrupting PDF base64
       const safeProjects = projects.map(p => ({
         ...p,
-        pdfFileUrl: p.pdfFileUrl && p.pdfFileUrl.length > 200000 ? p.pdfFileUrl.substring(0, 200000) : p.pdfFileUrl,
-        nieFileUrl: p.nieFileUrl && p.nieFileUrl.length > 200000 ? p.nieFileUrl.substring(0, 200000) : p.nieFileUrl,
+        pdfFileUrl: p.pdfFileUrl && p.pdfFileUrl.length > 50000 ? undefined : p.pdfFileUrl,
+        nieFileUrl: p.nieFileUrl && p.nieFileUrl.length > 50000 ? undefined : p.nieFileUrl,
       }));
       localStorage.setItem("sansico_projects", JSON.stringify(safeProjects));
     } catch (e) {
