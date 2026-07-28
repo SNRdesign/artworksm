@@ -34,6 +34,13 @@ export default function LoginPage({ users, onLogin, onAcceptInvite }: LoginPageP
   const [regError, setRegError] = useState("");
   const [invitedUserAccount, setInvitedUserAccount] = useState<UserAccount | null>(null);
 
+  // Helper to clear invite parameters from browser URL bar
+  const clearUrlInviteParams = () => {
+    if (typeof window !== "undefined" && window.history && window.history.replaceState) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  };
+
   // Check URL parameters on mount for email invitation links
   React.useEffect(() => {
     try {
@@ -41,9 +48,21 @@ export default function LoginPage({ users, onLogin, onAcceptInvite }: LoginPageP
       const urlEmail = params.get("inviteEmail") || params.get("email");
       if (urlEmail) {
         const clean = urlEmail.trim().toLowerCase();
-        setRegEmail(clean);
-        setIsRegisterOpen(true);
-        handleEmailInputChange(clean);
+        const existingInvite = users.find(u => u.email.toLowerCase() === clean);
+
+        // If user is already ACTIVE (already accepted ACC), DO NOT open popup modal!
+        if (existingInvite && (existingInvite.isActive || existingInvite.invitationStatus === "ACTIVE")) {
+          clearUrlInviteParams();
+          setIsRegisterOpen(false);
+          setRegEmail("");
+        } else if (existingInvite && existingInvite.invitationStatus === "PENDING") {
+          // Only open popup modal for pending invitations
+          setRegEmail(clean);
+          setIsRegisterOpen(true);
+          handleEmailInputChange(clean);
+        } else {
+          clearUrlInviteParams();
+        }
       }
     } catch (e) {
       console.warn("Error reading URL search params:", e);
@@ -116,6 +135,7 @@ export default function LoginPage({ users, onLogin, onAcceptInvite }: LoginPageP
     setRegFullName("");
     setRegPassword("");
     setInvitedUserAccount(null);
+    clearUrlInviteParams();
 
     // Automatically log in the user immediately to their portal
     onLogin(activatedUser);
@@ -340,7 +360,10 @@ export default function LoginPage({ users, onLogin, onAcceptInvite }: LoginPageP
                 </div>
               </div>
               <button
-                onClick={() => setIsRegisterOpen(false)}
+                onClick={() => {
+                  setIsRegisterOpen(false);
+                  clearUrlInviteParams();
+                }}
                 className="text-slate-400 hover:text-slate-600 font-bold text-sm w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center cursor-pointer"
               >
                 ✕
@@ -423,7 +446,10 @@ export default function LoginPage({ users, onLogin, onAcceptInvite }: LoginPageP
               <div className="pt-2 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsRegisterOpen(false)}
+                  onClick={() => {
+                    setIsRegisterOpen(false);
+                    clearUrlInviteParams();
+                  }}
                   className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold cursor-pointer transition"
                 >
                   Batal

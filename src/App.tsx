@@ -269,6 +269,9 @@ export default function App() {
   const handleLogin = (user: UserAccount) => {
     setCurrentUser(user);
     setIsLoggedIn(true);
+    if (typeof window !== "undefined" && window.history && window.history.replaceState) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
     try {
       localStorage.setItem("sansico_session_user", JSON.stringify(user));
     } catch (e) {
@@ -278,6 +281,9 @@ export default function App() {
 
   const handleLogout = () => {
     setIsLoggedIn(false);
+    if (typeof window !== "undefined" && window.history && window.history.replaceState) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
     try {
       localStorage.removeItem("sansico_session_user");
     } catch (e) {
