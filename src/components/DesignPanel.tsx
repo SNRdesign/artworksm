@@ -136,20 +136,27 @@ function extractMetadataFromPdf(fileName: string, fallbackDocType: DocType) {
     }
   }
   
-  const nieMatch = fileName.match(/(AK[DL]|PKRT)\s*[-_]?\s*(\d+)/i);
+  // Extract NIE Number automatically using flexible regex patterns
   let nieNumber = "";
-  if (nieMatch) {
-    const type = nieMatch[1].toUpperCase();
-    nieNumber = `KEMENKES RI ${type} ${nieMatch[2]}`;
+  const kemenkesFullMatch = fileName.match(/(?:KEMENKES\s*RI\s*)?(AKD|AKL|PKRT)[\s\-_.:]*([0-9.\-]+)/i);
+  const nieKeywordMatch = fileName.match(/(?:NIE|IZIN\s*EDAR|REG|REGISTRATION)[\s\-_.:]*(?:RI)?[\s\-_.:]*(?:(AKD|AKL|PKRT)[\s\-_.:]*)?([0-9.\-]+)/i);
+  const standaloneDigitMatch = fileName.match(/(?:^|[^0-9])(\d{10,12}|\d{1}\.\d{2}\.\d{2}\.\d{2}\.\d{4})(?:[^0-9]|$)/);
+
+  if (kemenkesFullMatch) {
+    const type = kemenkesFullMatch[1].toUpperCase();
+    const cleanDigits = kemenkesFullMatch[2].replace(/[^0-9]/g, "");
+    nieNumber = `KEMENKES RI ${type} ${cleanDigits || kemenkesFullMatch[2]}`;
+  } else if (nieKeywordMatch) {
+    const type = (nieKeywordMatch[1] || (lowercaseName.includes("import") || lowercaseName.includes("akl") ? "AKL" : "AKD")).toUpperCase();
+    const cleanDigits = nieKeywordMatch[2].replace(/[^0-9]/g, "");
+    nieNumber = `KEMENKES RI ${type} ${cleanDigits || nieKeywordMatch[2]}`;
+  } else if (standaloneDigitMatch) {
+    const rawDigits = standaloneDigitMatch[1].replace(/[^0-9]/g, "");
+    const isImport = lowercaseName.includes("import") || lowercaseName.includes("co-") || lowercaseName.includes("intl") || lowercaseName.includes("ltd") || lowercaseName.includes("akl");
+    const niePrefix = isImport ? "AKL" : "AKD";
+    nieNumber = `KEMENKES RI ${niePrefix} ${rawDigits}`;
   } else {
-    const generalNieMatch = fileName.match(/\b(\d{11})\b/);
-    if (generalNieMatch) {
-      const isImport = lowercaseName.includes("import") || lowercaseName.includes("co-") || lowercaseName.includes("intl") || lowercaseName.includes("ltd");
-      const niePrefix = isImport ? "AKL" : "AKD";
-      nieNumber = `KEMENKES RI ${niePrefix} ${generalNieMatch[1]}`;
-    } else {
-      nieNumber = "";
-    }
+    nieNumber = "";
   }
   
   const isSterile = lowercaseName.includes("sterile") || lowercaseName.includes("steril");
@@ -187,21 +194,27 @@ function splitNieNumber(fullNie: string): { prefix: string; suffix: string } {
 
   if (upper.includes("AKL")) {
     const idx = upper.indexOf("AKL");
-    const suffix = trimmed.substring(idx + 3).trim();
+    let suffix = trimmed.substring(idx + 3).trim();
+    suffix = suffix.replace(/^[-_:\s]+/, "");
     return { prefix: "KEMENKES RI AKL", suffix };
   } else if (upper.includes("AKD")) {
     const idx = upper.indexOf("AKD");
-    const suffix = trimmed.substring(idx + 3).trim();
+    let suffix = trimmed.substring(idx + 3).trim();
+    suffix = suffix.replace(/^[-_:\s]+/, "");
     return { prefix: "KEMENKES RI AKD", suffix };
   } else if (upper.includes("PKRT")) {
     const idx = upper.indexOf("PKRT");
-    const suffix = trimmed.substring(idx + 4).trim();
+    let suffix = trimmed.substring(idx + 4).trim();
+    suffix = suffix.replace(/^[-_:\s]+/, "");
     return { prefix: "KEMENKES RI PKRT", suffix };
   } else if (upper.startsWith("KEMENKES RI")) {
-    const suffix = trimmed.substring(11).trim();
-    return { prefix: "KEMENKES RI", suffix };
+    let suffix = trimmed.substring(11).trim();
+    suffix = suffix.replace(/^[-_:\s]+/, "");
+    return { prefix: "KEMENKES RI AKD", suffix };
   }
-  return { prefix: "KEMENKES RI AKD", suffix: trimmed };
+  
+  const cleanDigits = trimmed.replace(/[^0-9]/g, "");
+  return { prefix: "KEMENKES RI AKD", suffix: cleanDigits || trimmed };
 }
 
 function applyDocTypePrefix(name: string, type: DocType): string {

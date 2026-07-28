@@ -39,7 +39,7 @@ async function startServer() {
         return res.status(500).json({ error: "GEMINI_API_KEY environment variable is not set on the server." });
       }
 
-      console.log(`Analyzing file: ${fileName} (${mimeType}) with Gemini 3.5 Flash...`);
+      console.log(`Analyzing file: ${fileName} (${mimeType}) with Gemini 2.5 Flash...`);
 
       const filePart = {
         inlineData: {
@@ -51,19 +51,18 @@ async function startServer() {
       const prompt = `Analyze this medical device / medical accessory artwork or packaging layout file (usually a PDF, PNG, or JPEG layout for Sansico Medica).
 Please extract the following information accurately from the text or visual contents of the document:
 1. Product/Project Name (e.g. "Sansico Infusion Bag 500ml", "Sansico Syringe Set 10ml")
-2. Document Type (Must be exactly one of: "Inner Box", "Label Botol", "IFU", "QC Pass Certif")
-3. Product Code / REF code (Must extract the actual REF / reference number, printed on the design. Maintain prefix 'REF' if present, e.g. "REF-SYN-10ML" or "REF 1002301")
-4. NIE Number / Nomor Izin Edar (Indonesian Kemenkes registration number printed on the design, e.g. "KEMENKES RI AKD 20101221725", "KEMENKES RI AKL 20902511032", "KEMENKES RI PKRT 20501110092", or "AKD 20902120034"). 
-   - Search the document text carefully for any occurrences of "KEMENKES", "AKD", "AKL", "PKRT", "NIE", or "Izin Edar".
-   - Extract the EXACT registration code printed on the artwork.
-   - If no NIE / AKD / AKL / PKRT registration number is printed anywhere on the document, return an empty string "". DO NOT fabricate or invent a fake NIE number.
+2. Document Type (Must be exactly one of: "Inner Box", "Pouch", "Label Botol", "IFU", "QC Pass Certif", "Master Carton", "Lainnya")
+3. Product Code / REF code (Must extract the actual REF / reference number, printed on the design, e.g. "REF-SYN-10ML", "REF 1002301", or "SYN-10ML")
+4. NIE Number / Nomor Izin Edar / Kemenkes RI Registration (Look carefully everywhere on the artwork layout for terms like "KEMENKES", "AKD", "AKL", "PKRT", "NIE", "Izin Edar", "No. Reg", or any 10-12 digit registration number e.g. "KEMENKES RI AKD 20101221725", "AKD 20902120034", "AKL 20902511032", "PKRT 20501110092", or "20902120034").
+   - Extract the full NIE/AKD/AKL/PKRT code as formatted or at minimum the prefix and numbers (e.g. "KEMENKES RI AKD 20902120034").
+   - If only the numbers or AKD/AKL prefix is printed, format it cleanly as "KEMENKES RI [AKD/AKL/PKRT] [number]".
+   - Search the document text and artwork layout thoroughly.
 5. All legible artwork text content printed on the layout.
 
-Search the text carefully for any registration code resembling Indonesian Kemenkes AKD/AKL/PKRT formats or standard REF codes, and output it.
-Ensure the output matches the exact text on the document.`;
+Ensure the output matches the exact text or numbers on the document.`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-flash-latest",
+        model: "gemini-2.5-flash",
         contents: [filePart, prompt],
         config: {
           responseMimeType: "application/json",
@@ -71,7 +70,7 @@ Ensure the output matches the exact text on the document.`;
             type: Type.OBJECT,
             properties: {
               name: { type: Type.STRING, description: "Extracted name of the medical device product." },
-              docType: { type: Type.STRING, description: "Document type. Must be exactly 'Inner Box', 'Label Botol', 'IFU', or 'QC Pass Certif'." },
+              docType: { type: Type.STRING, description: "Document type. Must be exactly 'Inner Box', 'Pouch', 'Label Botol', 'IFU', 'QC Pass Certif', 'Master Carton', or 'Lainnya'." },
               refCode: { type: Type.STRING, description: "The product's REF code / reference number." },
               nieNumber: { type: Type.STRING, description: "The Indonesian KEMENKES RI AKD/AKL/PKRT registration number." },
               artworkText: { type: Type.STRING, description: "All legible text content found on the artwork design." }
