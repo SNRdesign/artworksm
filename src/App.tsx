@@ -30,6 +30,7 @@ import ProductPanel from "./components/ProductPanel";
 import PurchasingPanel from "./components/PurchasingPanel";
 import ContentApprovalSheet from "./components/ContentApprovalSheet";
 import LoginPage from "./components/LoginPage";
+import SansicoLogo from "./components/SansicoLogo";
 import { printApprovalSheetA4 } from "./lib/printUtils";
 
 import {
@@ -1162,19 +1163,7 @@ export default function App() {
       <header className="bg-white border-b border-slate-200 text-slate-800 shadow-xs sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-2.5 flex flex-col md:flex-row items-center justify-between gap-3">
           {/* Brand & App Title */}
-          <div className="flex items-center gap-3">
-            <div className="bg-red-600 text-white p-2 rounded-xl shadow-xs shrink-0">
-              <Layers className="w-5 h-5 text-white animate-spin-slow" />
-            </div>
-            <div>
-              <h1 className="font-display font-extrabold text-base tracking-tight text-slate-900 leading-tight">
-                Artwork Approval System
-              </h1>
-              <p className="text-[9px] text-slate-500 font-mono tracking-wider uppercase font-bold">
-                Sansico Medica Co. • Quality Assurance Division
-              </p>
-            </div>
-          </div>
+          <SansicoLogo size="md" />
 
           {/* Unified Controls & Account Info */}
           <div className="flex flex-wrap items-center justify-end gap-2 text-xs">

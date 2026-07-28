@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { UserAccount, Role } from "../types";
+import SansicoLogo from "./SansicoLogo";
 import { 
   Building2, 
   Mail, 
@@ -208,20 +209,7 @@ export default function LoginPage({ users, onLogin, onAcceptInvite }: LoginPageP
       
       {/* Top Header Bar */}
       <header className="relative z-20 px-6 py-5 max-w-7xl mx-auto w-full flex items-center justify-between border-b border-slate-100">
-        <div className="flex items-center gap-3">
-          <div className="bg-red-600 text-white font-black px-3.5 py-2 rounded-2xl text-xs tracking-wider uppercase shadow-sm flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-white" />
-            <span>SANSICO</span>
-          </div>
-          <div>
-            <h1 className="font-bold text-sm text-slate-900 tracking-tight leading-none">
-              PT SANSICO NATURA RESOURCES
-            </h1>
-            <p className="text-[10px] text-slate-500 font-mono mt-0.5">
-              Sistem Alur Verifikasi & Release Dokumen Kemasan Alat Kesehatan
-            </p>
-          </div>
-        </div>
+        <SansicoLogo size="md" />
       </header>
 
       {/* Main Center Form Workspace */}
