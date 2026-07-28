@@ -447,7 +447,7 @@ export default function App() {
       try {
         const notif = new Notification(title, {
           body,
-          icon: "https://cdn.phototourl.com/free/2026-07-28-adfa490b-73bd-4f8a-9fea-e3261093800c.png", // aesthetic bell icon
+          icon: "https://cdn.phototourl.com/free/2026-07-28-2df5ac08-30f5-4520-a0cc-8d752579239d.png", // aesthetic bell icon
         });
         setTimeout(() => notif.close(), 6000);
       } catch (e) {
@@ -1761,7 +1761,7 @@ export default function App() {
                         id={`btn-view-sheet-${p.id}`}
                         className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-1 px-2 rounded-lg text-[10px] transition duration-150 shadow-sm"
                       >
-                        📄 Lihat Lembar ACC
+                        Lihat Lembar ACC
                       </button>
                     </div>
                   ))}
