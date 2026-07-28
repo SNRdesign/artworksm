@@ -9,7 +9,8 @@ import {
   AlertCircle, 
   Loader2,
   Maximize2,
-  RotateCcw
+  RotateCcw,
+  X
 } from "lucide-react";
 
 // Configure worker URL using jsDelivr CDN matching version
@@ -56,6 +57,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   currentPage,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const modalCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
@@ -64,6 +66,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const [scale, setScale] = useState<number>(1.0); // 1.0 = 100% fit
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [isFullscreenModalOpen, setIsFullscreenModalOpen] = useState<boolean>(false);
 
   // Sync with external currentPage if provided
   useEffect(() => {
@@ -71,6 +74,17 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       setPageNum(currentPage);
     }
   }, [currentPage]);
+
+  // Handle ESC key to close modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isFullscreenModalOpen) {
+        setIsFullscreenModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isFullscreenModalOpen]);
 
   const changePage = (newPage: number) => {
     setPageNum(newPage);
@@ -142,63 +156,51 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   }, [url, isImage]);
 
   // Render Page onto Canvas
+  const renderCanvasOnTarget = async (targetCanvas: HTMLCanvasElement | null, containerWidthOverride?: number) => {
+    if (!pdfDoc || !targetCanvas || isImage) return;
+
+    try {
+      const page = await pdfDoc.getPage(pageNum);
+      const ctx = targetCanvas.getContext("2d");
+      if (!ctx) return;
+
+      const containerWidth = containerWidthOverride || (containerRef.current ? Math.max(containerRef.current.clientWidth - 40, 300) : 500);
+      const unscaledViewport = page.getViewport({ scale: 1 });
+      const autoFitScale = containerWidth / unscaledViewport.width;
+      
+      const effectiveScale = Math.max(autoFitScale * scale, 0.3);
+      const viewport = page.getViewport({ scale: effectiveScale });
+
+      const outputScale = window.devicePixelRatio || 1;
+      targetCanvas.width = Math.floor(viewport.width * outputScale);
+      targetCanvas.height = Math.floor(viewport.height * outputScale);
+      targetCanvas.style.width = `${Math.floor(viewport.width)}px`;
+      targetCanvas.style.height = `${Math.floor(viewport.height)}px`;
+
+      ctx.scale(outputScale, outputScale);
+
+      const renderContext = {
+        canvasContext: ctx,
+        viewport: viewport,
+      };
+
+      await page.render(renderContext).promise;
+    } catch (err: any) {
+      if (err?.name !== "RenderingCancelledException") {
+        console.error("Canvas render error:", err);
+      }
+    }
+  };
+
   useEffect(() => {
-    if (!pdfDoc || !canvasRef.current || isImage) return;
-
-    let renderTask: any = null;
-    let isMounted = true;
-
-    const renderPage = async () => {
-      try {
-        const page = await pdfDoc.getPage(pageNum);
-        if (!isMounted || !canvasRef.current) return;
-
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-
-        // Calculate responsive base scale to fit container width
-        const containerWidth = containerRef.current ? Math.max(containerRef.current.clientWidth - 40, 300) : 500;
-        const unscaledViewport = page.getViewport({ scale: 1 });
-        const autoFitScale = containerWidth / unscaledViewport.width;
-        
-        // Effective scale combines autoFit with user scale modifier
-        const effectiveScale = Math.max(autoFitScale * scale, 0.3);
-
-        const viewport = page.getViewport({ scale: effectiveScale });
-
-        // Crisp high-DPI canvas rendering
-        const outputScale = window.devicePixelRatio || 1;
-        canvas.width = Math.floor(viewport.width * outputScale);
-        canvas.height = Math.floor(viewport.height * outputScale);
-        canvas.style.width = `${Math.floor(viewport.width)}px`;
-        canvas.style.height = `${Math.floor(viewport.height)}px`;
-
-        ctx.scale(outputScale, outputScale);
-
-        const renderContext = {
-          canvasContext: ctx,
-          viewport: viewport,
-        };
-
-        renderTask = page.render(renderContext);
-        await renderTask.promise;
-      } catch (err: any) {
-        if (err?.name !== "RenderingCancelledException") {
-          console.error("Canvas render error:", err);
-        }
-      }
-    };
-
-    renderPage();
-
-    return () => {
-      isMounted = false;
-      if (renderTask) {
-        renderTask.cancel();
-      }
-    };
+    renderCanvasOnTarget(canvasRef.current);
   }, [pdfDoc, pageNum, scale, isImage]);
+
+  useEffect(() => {
+    if (isFullscreenModalOpen) {
+      renderCanvasOnTarget(modalCanvasRef.current, Math.min(window.innerWidth - 80, 1000));
+    }
+  }, [isFullscreenModalOpen, pdfDoc, pageNum, scale, isImage]);
 
   const handleZoomIn = () => {
     setScale((prev) => Math.min(prev + 0.25, 4.0));
@@ -212,16 +214,24 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     setScale(1.0);
   };
 
-  const openFullscreen = () => {
+  const openInNewTab = () => {
     if (!url) return;
-    if (url.startsWith("data:")) {
-      const bytes = dataUrlToUint8Array(url);
-      const blob = new Blob([bytes], { type: isImage ? "image/png" : "application/pdf" });
-      const blobUrl = URL.createObjectURL(blob);
-      window.open(blobUrl, "_blank");
-    } else {
-      window.open(url, "_blank");
+    try {
+      if (url.startsWith("data:")) {
+        const bytes = dataUrlToUint8Array(url);
+        const blob = new Blob([bytes], { type: isImage ? "image/png" : "application/pdf" });
+        const blobUrl = URL.createObjectURL(blob);
+        window.open(blobUrl, "_blank");
+      } else {
+        window.open(url, "_blank");
+      }
+    } catch (e) {
+      console.warn("Could not open in new tab:", e);
     }
+  };
+
+  const toggleFullscreenModal = () => {
+    setIsFullscreenModalOpen((prev) => !prev);
   };
 
   return (
@@ -238,6 +248,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             {!isImage && numPages > 1 && (
               <div className="flex items-center gap-1 bg-slate-950/80 px-2 py-1 rounded-lg border border-slate-700 text-[11px] font-mono mr-1">
                 <button
+                  type="button"
                   onClick={() => changePage(Math.max(1, pageNum - 1))}
                   disabled={pageNum <= 1}
                   className="p-0.5 hover:text-indigo-400 disabled:opacity-30 disabled:hover:text-white cursor-pointer transition"
@@ -247,6 +258,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                 </button>
                 <span className="px-1 text-slate-200">{pageNum} / {numPages}</span>
                 <button
+                  type="button"
                   onClick={() => changePage(Math.min(numPages, pageNum + 1))}
                   disabled={pageNum >= numPages}
                   className="p-0.5 hover:text-indigo-400 disabled:opacity-30 disabled:hover:text-white cursor-pointer transition"
@@ -260,6 +272,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             {/* Zoom Controls */}
             <div className="flex items-center gap-1 bg-slate-950/80 px-1.5 py-1 rounded-lg border border-slate-700">
               <button
+                type="button"
                 onClick={handleZoomOut}
                 className="p-1 hover:bg-slate-800 hover:text-indigo-400 text-slate-300 rounded cursor-pointer transition active:scale-95"
                 title="Perkecil (-25%)"
@@ -268,6 +281,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               </button>
 
               <button
+                type="button"
                 onClick={handleResetZoom}
                 className="text-[10px] font-mono px-1.5 py-0.5 text-indigo-300 hover:text-white hover:bg-slate-800 rounded cursor-pointer transition flex items-center gap-1"
                 title="Reset Zoom ke 100%"
@@ -277,6 +291,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               </button>
 
               <button
+                type="button"
                 onClick={handleZoomIn}
                 className="p-1 hover:bg-slate-800 hover:text-indigo-400 text-slate-300 rounded cursor-pointer transition active:scale-95"
                 title="Perbesar (+25%)"
@@ -285,12 +300,13 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               </button>
             </div>
 
-            {/* Open Fullscreen / New Tab */}
+            {/* Open Fullscreen Modal */}
             {url && (
               <button
-                onClick={openFullscreen}
+                type="button"
+                onClick={toggleFullscreenModal}
                 className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] px-2.5 py-1 rounded-lg transition shadow-xs cursor-pointer ml-1 active:scale-95"
-                title="Buka Dokumen di Tab Baru"
+                title="Buka Pratinjau Layar Penuh"
               >
                 <Maximize2 className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Layar Penuh</span>
@@ -322,11 +338,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             <span className="text-[11px] text-slate-400 mb-3">{error}</span>
             {url && (
               <button
-                onClick={openFullscreen}
+                type="button"
+                onClick={toggleFullscreenModal}
                 className="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-3.5 py-2 rounded-lg transition cursor-pointer shadow-md"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
-                Buka PDF di Tab Baru (Original Vector)
+                Buka Mode Layar Penuh
               </button>
             )}
           </div>
@@ -355,6 +372,127 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           )
         )}
       </div>
+
+      {/* Built-in Fullscreen Modal Overlay */}
+      {isFullscreenModalOpen && (
+        <div className="fixed inset-0 z-[9999] bg-slate-950/95 flex flex-col p-3 sm:p-6 backdrop-blur-md animate-fade-in text-white">
+          {/* Modal Header Bar */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-2xl mb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-600/20 text-indigo-400 rounded-xl border border-indigo-500/30">
+                <Maximize2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-white truncate max-w-xs sm:max-w-md font-mono">
+                  {fileName || "Dokumen_Layout.pdf"}
+                </h3>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  Pratinjau Layar Penuh High-Resolution Vector Artwork
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Page Controls */}
+              {!isImage && numPages > 1 && (
+                <div className="flex items-center gap-1 bg-slate-950 px-2 py-1.5 rounded-xl border border-slate-800 text-xs font-mono">
+                  <button
+                    type="button"
+                    onClick={() => changePage(Math.max(1, pageNum - 1))}
+                    disabled={pageNum <= 1}
+                    className="p-1 hover:text-indigo-400 disabled:opacity-30 disabled:hover:text-white cursor-pointer transition"
+                    title="Halaman Sebelumnya"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="px-2 text-slate-200 font-bold">{pageNum} / {numPages}</span>
+                  <button
+                    type="button"
+                    onClick={() => changePage(Math.min(numPages, pageNum + 1))}
+                    disabled={pageNum >= numPages}
+                    className="p-1 hover:text-indigo-400 disabled:opacity-30 disabled:hover:text-white cursor-pointer transition"
+                    title="Halaman Selanjutnya"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* Zoom Controls */}
+              <div className="flex items-center gap-1 bg-slate-950 px-2 py-1.5 rounded-xl border border-slate-800 text-xs font-mono">
+                <button
+                  type="button"
+                  onClick={handleZoomOut}
+                  className="p-1 hover:text-indigo-400 text-slate-300 rounded cursor-pointer transition"
+                  title="Perkecil"
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetZoom}
+                  className="px-2 py-0.5 text-indigo-300 hover:text-white font-bold transition"
+                  title="Reset Zoom"
+                >
+                  {Math.round(scale * 100)}%
+                </button>
+                <button
+                  type="button"
+                  onClick={handleZoomIn}
+                  className="p-1 hover:text-indigo-400 text-slate-300 rounded cursor-pointer transition"
+                  title="Perbesar"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* External Tab Fallback */}
+              <button
+                type="button"
+                onClick={openInNewTab}
+                className="hidden md:inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs px-3 py-2 rounded-xl transition cursor-pointer border border-slate-700"
+                title="Buka di Tab Baru"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Tab Baru</span>
+              </button>
+
+              {/* Close Button */}
+              <button
+                type="button"
+                onClick={() => setIsFullscreenModalOpen(false)}
+                className="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition cursor-pointer shadow-lg active:scale-95 ml-2"
+                title="Tutup (Esc)"
+              >
+                <X className="w-4 h-4" />
+                <span>Tutup</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Modal Main View Canvas / Image */}
+          <div className="flex-1 overflow-auto bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex items-center justify-center relative shadow-inner">
+            <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:20px_20px] opacity-20 pointer-events-none"></div>
+
+            {isImage ? (
+              <img
+                src={url || ""}
+                alt={fileName || "Artwork Fullscreen"}
+                className="max-h-full max-w-full object-contain rounded border border-slate-700 shadow-2xl transition-all duration-200 bg-white"
+                style={{
+                  transform: `scale(${scale})`,
+                  transformOrigin: "center center",
+                }}
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="relative shadow-2xl rounded bg-white border border-slate-200 transition-all duration-150 m-auto">
+                <canvas ref={modalCanvasRef} className="block mx-auto" />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

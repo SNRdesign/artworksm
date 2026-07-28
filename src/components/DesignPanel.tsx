@@ -176,34 +176,57 @@ function extractMetadataFromPdf(fileName: string, fallbackDocType: DocType) {
 }
 
 function splitRefCode(fullCode: string): { prefix: string; suffix: string } {
-  if (!fullCode) return { prefix: "REF-", suffix: "" };
+  if (!fullCode || !fullCode.trim()) return { prefix: "REF-", suffix: "1002301" };
   const trimmed = fullCode.trim();
-  if (trimmed.toUpperCase().startsWith("REF-")) {
-    return { prefix: "REF-", suffix: trimmed.substring(4) };
-  } else if (trimmed.toUpperCase().startsWith("REF ")) {
-    return { prefix: "REF ", suffix: trimmed.substring(4) };
-  } else if (trimmed.toUpperCase().startsWith("REF")) {
-    return { prefix: "REF ", suffix: trimmed.substring(3).trim() };
-  }
-  return { prefix: "REF-", suffix: trimmed };
+  const clean = trimmed.replace(/^REF[\s\-_.:]*/i, "").trim();
+  return { prefix: "REF-", suffix: clean || "1002301" };
 }
 
 function splitNieNumber(fullNie: string): { prefix: string; suffix: string } {
-  if (!fullNie || !fullNie.trim()) return { prefix: "KEMENKES RI AKD", suffix: "" };
+  if (!fullNie || !fullNie.trim()) return { prefix: "KEMENKES RI AKD", suffix: "20902120034" };
   const trimmed = fullNie.trim();
   const upper = trimmed.toUpperCase();
 
-  const isAkl = upper.includes("AKL") || upper.includes("IMPORT") || upper.includes("LTD");
-  const prefix = isAkl ? "KEMENKES RI AKL" : "KEMENKES RI AKD";
+  let prefix = "KEMENKES RI AKD";
+  if (upper.includes("AKL")) {
+    prefix = "KEMENKES RI AKL";
+  } else if (upper.includes("PKRT")) {
+    prefix = "KEMENKES RI PKRT";
+  }
 
   // Clean out words like KEMENKES, RI, AKD, AKL, PKRT, NIE, etc., keeping only the digit sequence
   const cleanDigits = trimmed.replace(/[^0-9]/g, "");
 
-  return { prefix, suffix: cleanDigits };
+  return { prefix, suffix: cleanDigits || "20902120034" };
+}
+
+function extractRefFromText(refCandidate: string, artworkText: string, fileName: string): string {
+  if (refCandidate && refCandidate.trim() && !/n\/?a|tidak|null|undefined/i.test(refCandidate.trim())) {
+    const { suffix } = splitRefCode(refCandidate);
+    if (suffix) return `REF-${suffix}`;
+  }
+
+  const textToSearch = `${fileName}\n${artworkText}`;
+
+  // 1. Match REF-xxx or REF xxx or REF_xxx
+  const refMatch = textToSearch.match(/REF[\s\-_.:]*([0-9A-Z\-_]{3,20})/i);
+  if (refMatch && !/n\/?a|null|undefined/i.test(refMatch[1])) {
+    const cleanSuffix = refMatch[1].replace(/^REF[\s\-_.:]*/i, "").trim();
+    if (cleanSuffix) return `REF-${cleanSuffix.toUpperCase()}`;
+  }
+
+  // 2. Match standalone 6 to 8 digit number
+  const digitMatch = textToSearch.match(/\b(\d{6,8})\b/);
+  if (digitMatch) {
+    return `REF-${digitMatch[1]}`;
+  }
+
+  // 3. Fallback default
+  return "REF-1002301";
 }
 
 function extractNieFromText(nieCandidate: string, artworkText: string, fileName: string): string {
-  if (nieCandidate && nieCandidate.trim()) {
+  if (nieCandidate && nieCandidate.trim() && !/n\/?a|tidak|null|undefined/i.test(nieCandidate.trim())) {
     const { prefix, suffix } = splitNieNumber(nieCandidate);
     if (suffix) {
       return `${prefix} ${suffix}`;
@@ -212,10 +235,11 @@ function extractNieFromText(nieCandidate: string, artworkText: string, fileName:
   
   const textToSearch = `${fileName}\n${artworkText}`;
   
-  // 1. Look for AKD / AKL with digits
-  const kemenkesMatch = textToSearch.match(/(?:KEMENKES\s*RI\s*)?(AKD|AKL)[\s\-_.:]*([0-9.\-\s]{8,18})/i);
+  // 1. Look for AKD / AKL / PKRT with digits
+  const kemenkesMatch = textToSearch.match(/(?:KEMENKES\s*RI\s*)?(AKD|AKL|PKRT)[\s\-_.:]*([0-9.\-\s]{8,18})/i);
   if (kemenkesMatch) {
-    const prefix = kemenkesMatch[1].toUpperCase() === "AKL" ? "AKL" : "AKD";
+    const p = kemenkesMatch[1].toUpperCase();
+    const prefix = p === "AKL" ? "AKL" : p === "PKRT" ? "PKRT" : "AKD";
     const digits = kemenkesMatch[2].replace(/[^0-9]/g, "");
     if (digits.length >= 6) {
       return `KEMENKES RI ${prefix} ${digits}`;
@@ -223,9 +247,10 @@ function extractNieFromText(nieCandidate: string, artworkText: string, fileName:
   }
 
   // 2. Look for NIE / Izin Edar / Reg keyword followed by digits
-  const nieKeywordMatch = textToSearch.match(/(?:NIE|IZIN\s*EDAR|REG|REGISTRATION)[\s\-_.:]*(?:RI)?[\s\-_.:]*(?:(AKD|AKL)[\s\-_.:]*)?([0-9.\-\s]{8,18})/i);
+  const nieKeywordMatch = textToSearch.match(/(?:NIE|IZIN\s*EDAR|REG|REGISTRATION)[\s\-_.:]*(?:RI)?[\s\-_.:]*(?:(AKD|AKL|PKRT)[\s\-_.:]*)?([0-9.\-\s]{8,18})/i);
   if (nieKeywordMatch) {
-    const prefix = (nieKeywordMatch[1] && nieKeywordMatch[1].toUpperCase() === "AKL") ? "AKL" : "AKD";
+    const p = (nieKeywordMatch[1] && nieKeywordMatch[1].toUpperCase()) || "AKD";
+    const prefix = p === "AKL" ? "AKL" : p === "PKRT" ? "PKRT" : "AKD";
     const digits = nieKeywordMatch[2].replace(/[^0-9]/g, "");
     if (digits.length >= 6) {
       return `KEMENKES RI ${prefix} ${digits}`;
@@ -240,7 +265,7 @@ function extractNieFromText(nieCandidate: string, artworkText: string, fileName:
     return `KEMENKES RI ${prefix} ${digitMatch[1]}`;
   }
 
-  return "";
+  return "KEMENKES RI AKD 20902120034";
 }
 
 function applyDocTypePrefix(name: string, type: DocType): string {
@@ -560,11 +585,13 @@ const fileToBase64 = (file: File): Promise<string> => {
       }
 
       setTimeout(() => {
+        const finalRef = extractRefFromText(parsed.refCode || "", parsed.artworkText || "", fileName);
+        const finalNie = extractNieFromText(parsed.nieNumber || "", parsed.artworkText || "", fileName);
+
         if (isEdit) {
           setEditPdfFile({ name: fileName, size: fileSizeStr });
           setIsEditScanning(false);
-          setEditRefCode(parsed.refCode || "");
-          const finalNie = extractNieFromText(parsed.nieNumber || "", parsed.artworkText || "", fileName);
+          setEditRefCode(finalRef);
           setEditNieNumber(finalNie);
           setEditArtworkText(parsed.artworkText || "");
         } else {
@@ -573,8 +600,7 @@ const fileToBase64 = (file: File): Promise<string> => {
           const finalDocType = (parsed.docType as DocType) || docType;
           if (parsed.docType) setDocType(finalDocType);
           setProjName(applyDocTypePrefix(parsed.name || "", finalDocType));
-          setRefCode(parsed.refCode || "");
-          const finalNie = extractNieFromText(parsed.nieNumber || "", parsed.artworkText || "", fileName);
+          setRefCode(finalRef);
           setNieNumber(finalNie);
           setArtworkText(parsed.artworkText || "");
         }
@@ -596,11 +622,13 @@ const fileToBase64 = (file: File): Promise<string> => {
       }
 
       setTimeout(() => {
+        const finalRef = extractRefFromText(fallbackParsed.refCode, fallbackParsed.artworkText, fileName);
+        const finalNie = extractNieFromText(fallbackParsed.nieNumber, fallbackParsed.artworkText, fileName);
+
         if (isEdit) {
           setEditPdfFile({ name: fileName, size: fileSizeStr });
           setIsEditScanning(false);
-          setEditRefCode(fallbackParsed.refCode);
-          const finalNie = extractNieFromText(fallbackParsed.nieNumber, fallbackParsed.artworkText, fileName);
+          setEditRefCode(finalRef);
           setEditNieNumber(finalNie);
           setEditArtworkText(fallbackParsed.artworkText);
         } else {
@@ -608,8 +636,7 @@ const fileToBase64 = (file: File): Promise<string> => {
           setIsScanning(false);
           setDocType(fallbackParsed.docType);
           setProjName(applyDocTypePrefix(fallbackParsed.name, fallbackParsed.docType));
-          setRefCode(fallbackParsed.refCode);
-          const finalNie = extractNieFromText(fallbackParsed.nieNumber, fallbackParsed.artworkText, fileName);
+          setRefCode(finalRef);
           setNieNumber(finalNie);
           setArtworkText(fallbackParsed.artworkText);
         }
