@@ -924,11 +924,11 @@ ${309 + streamLength + 45}
                 id="select-sort-order"
                 className="w-full bg-slate-50 border border-slate-200/80 focus:border-emerald-500 focus:bg-white rounded-xl py-2 px-3 text-xs font-semibold outline-none transition text-slate-700 cursor-pointer"
               >
-                <option value="date_desc">📅 Tanggal Terbaru</option>
-                <option value="date_asc">📅 Tanggal Terlama</option>
-                <option value="category_asc">🏷️ Kategori (A - Z)</option>
-                <option value="category_desc">🏷️ Kategori (Z - A)</option>
-                <option value="name_asc">🔤 Nama Proyek (A - Z)</option>
+                <option value="date_desc">Tanggal Terbaru</option>
+                <option value="date_asc">Tanggal Terlama</option>
+                <option value="category_asc">Kategori (A - Z)</option>
+                <option value="category_desc">Kategori (Z - A)</option>
+                <option value="name_asc">Nama Proyek (A - Z)</option>
               </select>
             </div>
           </div>

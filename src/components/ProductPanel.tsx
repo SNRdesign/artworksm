@@ -286,10 +286,10 @@ startxref
       <div className="bg-gradient-to-r from-slate-900 to-indigo-950 rounded-2xl p-6 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-md border border-slate-800">
         <div>
           <span className="text-[10px] bg-indigo-500/30 text-indigo-300 font-extrabold uppercase px-3 py-1 rounded-full border border-indigo-500/20 tracking-wider">
-            Sistem Verifikasi Kepatuhan Medis
+            Sistem Verifikasi
           </span>
           <h3 className="font-display font-extrabold text-lg sm:text-xl mt-2.5 text-slate-100 tracking-tight">
-            Antrean Peninjauan Dokumen Master NIE
+            Antrean Peninjauan Dokumen Master
           </h3>
           <p className="text-slate-400 text-xs mt-1 font-medium max-w-xl">
             Tim Produk bertanggung jawab memvalidasi keselarasan cetakan desain artwork dengan data registrasi Kementerian Kesehatan RI.
@@ -474,7 +474,7 @@ startxref
                   <div className="flex items-center justify-between border-b border-indigo-100/50 pb-2">
                     <span className="text-[10px] uppercase font-bold text-indigo-900 font-display tracking-wider flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
-                      🎨 LAYOUT DESAIN ASLI (BERKAS DESAINER)
+                      LAYOUT DESAIN ASLI (BERKAS DESAINER)
                     </span>
                     <span className="text-[8px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-mono font-bold">
                       VERIFIKASI AKTIF
@@ -630,7 +630,7 @@ startxref
                         <div className="flex justify-between items-center">
                           <div>
                             <span className="text-xs font-black text-slate-800 uppercase tracking-wide block font-display">
-                              Checklist Kepatuhan Konten
+                              Checklist Konten
                             </span>
                             <p className="text-[10px] text-slate-400 font-semibold leading-tight">
                               Pastikan semua komponen di bawah sesuai dengan data acuan register resmi:
@@ -727,12 +727,12 @@ startxref
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-left">
                           <div>
                             <label className="block text-[8px] font-bold text-slate-500 uppercase mb-1 tracking-wider">
-                              1. Komponen yang Salah
+                              1. Bagian yang Salah
                             </label>
                             <input
                               type="text"
                               required
-                              placeholder="misal: Nomor NIE / Kode REF"
+                              placeholder="isi"
                               value={compName}
                               onChange={(e) => setCompName(e.target.value)}
                               className="w-full text-[11px] px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-rose-500 bg-white text-slate-700 font-semibold"
@@ -746,7 +746,7 @@ startxref
                             <input
                               type="text"
                               required
-                              placeholder="misal: Angka 9 tercetak sebagai 8"
+                              placeholder="isi"
                               value={errDesc}
                               onChange={(e) => setErrDesc(e.target.value)}
                               className="w-full text-[11px] px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-rose-500 bg-white text-slate-700 font-semibold"
@@ -755,12 +755,12 @@ startxref
 
                           <div>
                             <label className="block text-[8px] font-bold text-slate-500 uppercase mb-1 tracking-wider">
-                              3. Data Seharusnya Sesuai NIE
+                              3. Data Seharusnya
                             </label>
                             <input
                               type="text"
                               required
-                              placeholder="misal: AKD 20902120034"
+                              placeholder="isi"
                               value={expectedData}
                               onChange={(e) => setExpectedData(e.target.value)}
                               className="w-full text-[11px] px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-rose-500 bg-white text-slate-700 font-semibold"

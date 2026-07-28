@@ -447,7 +447,7 @@ export default function App() {
       try {
         const notif = new Notification(title, {
           body,
-          icon: "https://cdn-icons-png.flaticon.com/512/1041/1041885.png", // aesthetic bell icon
+          icon: "https://cdn.phototourl.com/free/2026-07-28-adfa490b-73bd-4f8a-9fea-e3261093800c.png", // aesthetic bell icon
         });
         setTimeout(() => notif.close(), 6000);
       } catch (e) {
@@ -465,7 +465,7 @@ export default function App() {
             setNotificationPermission(permission);
             if (permission === "granted") {
               triggerBrowserNotification(
-                "🔔 Notifikasi Diaktifkan!",
+                "Notifikasi Diaktifkan!",
                 "Anda akan menerima pemberitahuan desktop otomatis saat ada dokumen alkes yang butuh persetujuan Anda."
               );
             }
@@ -491,7 +491,7 @@ export default function App() {
         
         // Skip on initial page load to avoid spamming historical alerts
         if (prevId !== null) {
-          const title = newestNotif.type === "WARNING" ? "⚠️ Peringatan Sistem Alkes" : "📢 Info Alur Kerja Alkes";
+          const title = newestNotif.type === "WARNING" ? "Peringatan Sistem Approval" : "Info Alur Kerja";
           triggerBrowserNotification(title, newestNotif.message);
         }
       }
@@ -567,7 +567,7 @@ export default function App() {
 
         // Trigger browser sound if possible or a desktop notification
         triggerBrowserNotification(
-          "🚨 ALARM: Estimasi Hold Habis!",
+          "ALARM: Estimasi Hold Habis!",
           `Proyek "${p.name}" telah melewati estimasi hold cetak. Tindakan segera diperlukan!`
         );
 
@@ -1600,7 +1600,7 @@ export default function App() {
               <div className="flex items-center gap-1.5">
                 <Layers className="w-5 h-5 text-indigo-600" />
                 <h3 className="font-display font-bold text-slate-800 text-sm">
-                  Kanban Alur Kerja Medis (Seluruh Proyek)
+                  Alur Kerja (Seluruh Proyek)
                 </h3>
               </div>
               <span className="text-[10px] text-slate-400 font-mono">
@@ -1615,7 +1615,7 @@ export default function App() {
               <div className="bg-slate-50/60 rounded-xl p-3 border border-slate-100 flex flex-col min-h-[220px]">
                 <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-slate-100">
                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest font-display">
-                    🔬 Review Produk
+                    Review Produk
                   </span>
                   <span className="bg-slate-200/60 text-slate-700 text-[10px] px-2 py-0.5 rounded-full font-bold">
                     {projects.filter(p => p.status === ProjectStatus.PENDING_PRODUCT).length}
@@ -1650,7 +1650,7 @@ export default function App() {
               <div className="bg-rose-50/30 rounded-xl p-3 border border-rose-100/50 flex flex-col min-h-[220px]">
                 <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-rose-100">
                   <span className="text-[10px] font-bold text-rose-800 uppercase tracking-widest font-display">
-                    🎨 Revisi Desain
+                    Revisi Desain
                   </span>
                   <span className="bg-rose-100/50 text-rose-800 text-[10px] px-2 py-0.5 rounded-full font-bold">
                     {projects.filter(p => p.status === ProjectStatus.NEED_REVISION).length}
@@ -1687,7 +1687,7 @@ export default function App() {
               <div className="bg-amber-50/30 rounded-xl p-3 border border-amber-100/50 flex flex-col min-h-[220px]">
                 <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-amber-100">
                   <span className="text-[10px] font-bold text-amber-800 uppercase tracking-widest font-display">
-                    📦 Gate Purchasing
+                    Gate Purchasing
                   </span>
                   <span className="bg-amber-100/50 text-amber-800 text-[10px] px-2 py-0.5 rounded-full font-bold">
                     {projects.filter(p => p.status === ProjectStatus.APPROVED_PRODUCT || p.status === ProjectStatus.HOLD_PURCHASING).length}
@@ -1734,7 +1734,7 @@ export default function App() {
               <div className="bg-emerald-50/30 rounded-xl p-3 border border-emerald-100/50 flex flex-col min-h-[220px]">
                 <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-emerald-100">
                   <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-widest font-display">
-                    🖨️ Released Cetak
+                    Released Cetak
                   </span>
                   <span className="bg-emerald-100/50 text-emerald-800 text-[10px] px-2 py-0.5 rounded-full font-bold">
                     {projects.filter(p => p.status === ProjectStatus.FULLY_RELEASED).length}

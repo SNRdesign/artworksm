@@ -1261,12 +1261,12 @@ const fileToBase64 = (file: File): Promise<string> => {
                   </label>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {[
-                      { value: DocType.INNER_BOX, label: "Inner Box", desc: "Dus Dalam" },
-                      { value: DocType.POUCH, label: "Pouch", desc: "Kantong Kemasan" },
+                      { value: DocType.INNER_BOX, label: "Inner Box", desc: "Jaring Acuan" },
+                      { value: DocType.POUCH, label: "Pouch", desc: "Pouch Kemasan" },
                       { value: DocType.LABEL_BOTOL, label: "Label Botol", desc: "Stiker/Label" },
-                      { value: DocType.IFU, label: "IFU", desc: "Brosur Petunjuk" },
+                      { value: DocType.IFU, label: "IFU", desc: "Instruinstruction for use" },
                       { value: DocType.QC_PASS, label: "QC Pass", desc: "Sertifikat QC" },
-                      { value: DocType.MASTER_CARTON, label: "Master Carton", desc: "Kardus Master" },
+                      { value: DocType.MASTER_CARTON, label: "Master Carton", desc: "Ukuran Kardus" },
                       { value: DocType.LAINNYA, label: "Lainnya", desc: "Dokumen Lain" },
                     ].map((item) => (
                       <button
@@ -1301,7 +1301,7 @@ const fileToBase64 = (file: File): Promise<string> => {
                     <input
                       type="text"
                       required={docType === DocType.INNER_BOX || docType === DocType.POUCH}
-                      placeholder={(docType === DocType.INNER_BOX || docType === DocType.POUCH) ? "Input manual kode produk, contoh: SYN-10ML atau 1002301" : "Opsional, contoh: SYN-10ML atau 1002301"}
+                      placeholder={(docType === DocType.INNER_BOX || docType === DocType.POUCH) ? "Input manual REF" : "Opsional"}
                       value={refSuffix}
                       onChange={(e) => setRefSuffix(e.target.value)}
                       className="flex-1 text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 font-mono font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -1328,7 +1328,7 @@ const fileToBase64 = (file: File): Promise<string> => {
                     <input
                       type="text"
                       required={docType === DocType.INNER_BOX || docType === DocType.POUCH}
-                      placeholder={(docType === DocType.INNER_BOX || docType === DocType.POUCH) ? "Input manual angka NIE, contoh: 20902120034" : "Opsional, contoh: 20902120034"}
+                      placeholder={(docType === DocType.INNER_BOX || docType === DocType.POUCH) ? "Input manual angka NIE" : "Opsional"}
                       value={nieSuffix}
                       onChange={(e) => {
                         const val = e.target.value;
@@ -1356,7 +1356,7 @@ const fileToBase64 = (file: File): Promise<string> => {
                 <div className="flex items-center gap-1.5 text-indigo-900">
                   <CheckCircle className="w-4 h-4 text-indigo-600" />
                   <span className="text-xs font-bold uppercase font-display tracking-wider">
-                    Mandatory Technical Checklist (Tim Desain)
+                    Checklist Wajib (Tim Desain)
                   </span>
                 </div>
                 <p className="text-[11px] text-indigo-700/90 leading-tight">
@@ -1418,31 +1418,31 @@ const fileToBase64 = (file: File): Promise<string> => {
               <div className="bg-slate-50/70 border border-slate-100 rounded-2xl p-4 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider font-display">
-                    Statistik Berkas Alkes (Global)
+                    Rekap Statistik Berkas (Global)
                   </span>
                   <span className="text-[9px] text-slate-400 font-mono font-medium">Aktif</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-[10px] font-sans">
                   <div className="bg-white p-2.5 rounded-xl border border-slate-100/70 flex flex-col justify-between shadow-xs">
-                    <span className="text-slate-500 font-semibold block">🔬 Review Produk:</span>
+                    <span className="text-slate-500 font-semibold block">Review Produk:</span>
                     <span className="font-mono font-extrabold text-slate-800 text-xs mt-1">
                       {projects.filter(p => p.status === ProjectStatus.PENDING_PRODUCT).length} Berkas
                     </span>
                   </div>
                   <div className="bg-white p-2.5 rounded-xl border border-slate-100/70 flex flex-col justify-between shadow-xs">
-                    <span className="text-slate-500 font-semibold block">🎨 Revisi Desain:</span>
+                    <span className="text-slate-500 font-semibold block">Revisi Desain:</span>
                     <span className="font-mono font-extrabold text-rose-600 text-xs mt-1">
                       {projects.filter(p => p.status === ProjectStatus.NEED_REVISION).length} Berkas
                     </span>
                   </div>
                   <div className="bg-white p-2.5 rounded-xl border border-slate-100/70 flex flex-col justify-between shadow-xs">
-                    <span className="text-slate-500 font-semibold block">📦 Siap Rilis:</span>
+                    <span className="text-slate-500 font-semibold block">Siap Rilis:</span>
                     <span className="font-mono font-extrabold text-amber-600 text-xs mt-1">
                       {projects.filter(p => p.status === ProjectStatus.APPROVED_PRODUCT).length} Berkas
                     </span>
                   </div>
                   <div className="bg-white p-2.5 rounded-xl border border-slate-100/70 flex flex-col justify-between shadow-xs">
-                    <span className="text-slate-500 font-semibold block">🖨️ Selesai Cetak:</span>
+                    <span className="text-slate-500 font-semibold block">Selesai Cetak:</span>
                     <span className="font-mono font-extrabold text-emerald-600 text-xs mt-1">
                       {projects.filter(p => p.status === ProjectStatus.FULLY_RELEASED).length} Berkas
                     </span>
@@ -1529,7 +1529,7 @@ const fileToBase64 = (file: File): Promise<string> => {
                           onClick={() => handleEditInit(proj)}
                           className="bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold py-1.5 px-3 rounded-xl transition duration-150 cursor-pointer shadow-sm"
                         >
-                          ⚙️ Edit Proyek (Admin)
+                          Edit Proyek (Admin)
                         </button>
                       )}
                       {currentUser.role === Role.ADMINISTRATOR && onDeleteProject && (
@@ -1546,12 +1546,12 @@ const fileToBase64 = (file: File): Promise<string> => {
                           id={`btn-fix-desain-${proj.id}`}
                           className="bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold py-1.5 px-3 rounded-xl transition duration-150 cursor-pointer shadow-sm"
                         >
-                          ⚙️ Perbaiki Desain (Revisi)
+                          Perbaiki Desain (Revisi)
                         </button>
                       )}
                       {currentUser.role !== Role.ADMINISTRATOR && proj.status === ProjectStatus.FULLY_RELEASED && (
                         <span className="text-emerald-700 font-bold text-[11px] flex items-center gap-1">
-                          🔒 Dokumen Terkunci
+                          Dokumen Terkunci
                         </span>
                       )}
                     </div>
