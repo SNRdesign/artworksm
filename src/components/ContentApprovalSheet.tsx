@@ -7,18 +7,29 @@ import React, { useMemo } from "react";
 import { Project } from "../types";
 import { ShieldCheck, Printer, Stamp, FileCheck, CheckCircle2, FileText, Image as ImageIcon, ExternalLink } from "lucide-react";
 import { dataUrlToBlobUrl } from "../lib/fileStorage";
+import { PdfViewer } from "./PdfViewer";
 import { printApprovalSheetA4 } from "../lib/printUtils";
 
 interface ContentApprovalSheetProps {
   project: Project;
-  onPrint?: () => void;
+  onPrint?: (pageNumber?: number) => void;
+  onPageChange?: (pageNumber: number) => void;
 }
 
-export default function ContentApprovalSheet({ project, onPrint }: ContentApprovalSheetProps) {
+export default function ContentApprovalSheet({ project, onPrint, onPageChange }: ContentApprovalSheetProps) {
+  const [selectedPage, setSelectedPage] = React.useState<number>(1);
+
+  const handlePageChange = (page: number) => {
+    setSelectedPage(page);
+    if (onPageChange) {
+      onPageChange(page);
+    }
+  };
+
   const handlePrint = () => {
-    printApprovalSheetA4(project);
+    printApprovalSheetA4(project, selectedPage);
     if (onPrint) {
-      onPrint();
+      onPrint(selectedPage);
     }
   };
 
@@ -127,40 +138,15 @@ export default function ContentApprovalSheet({ project, onPrint }: ContentApprov
           </div>
 
           {/* Render actual uploaded image/PDF if available */}
-          {isImageFile ? (
-            <div className="my-2 z-10 flex flex-col items-center justify-center bg-white border border-slate-200 rounded-lg p-3 shadow-xs">
-              <img
-                src={project.pdfFileUrl}
-                alt={`Gambar Dokumen ${project.name}`}
-                className="max-h-96 w-full object-contain rounded border border-slate-100"
+          {project.pdfFileUrl ? (
+            <div className="my-2 z-10 w-full">
+              <PdfViewer
+                url={project.pdfFileUrl}
+                fileName={project.pdfFileName || project.name}
+                maxHeight="380px"
+                onPageChange={handlePageChange}
+                currentPage={selectedPage}
               />
-              <span className="text-[9px] text-slate-400 font-mono mt-2">
-                Berkas Gambar Dokumen: {project.pdfFileName || "Artwork_Image.png"}
-              </span>
-            </div>
-          ) : isPdfFile ? (
-            <div className="my-2 z-10 bg-white border border-slate-200 rounded-lg p-3 shadow-xs flex flex-col items-center">
-              <object
-                data={`${pdfBlobUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-                type="application/pdf"
-                className="w-full h-96 border-0 rounded"
-              >
-                <embed src={pdfBlobUrl} type="application/pdf" className="w-full h-96 rounded" />
-              </object>
-              <div className="mt-2 flex items-center justify-between w-full px-2">
-                <span className="text-[10px] text-slate-500 font-mono">
-                  Dokumen PDF: <strong className="text-slate-800">{project.pdfFileName || "Artwork_Document.pdf"}</strong>
-                </span>
-                <a
-                  href={pdfBlobUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg border border-indigo-200 transition shadow-xs"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  Buka PDF Layar Penuh (Kualitas Cetak 100%) ↗
-                </a>
-              </div>
             </div>
           ) : (
             /* High quality visual document mockup canvas representation */

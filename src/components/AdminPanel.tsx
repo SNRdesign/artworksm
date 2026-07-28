@@ -5,7 +5,7 @@
 
 import React, { useState } from "react";
 import { UserAccount, Role } from "../types";
-import { Eye, EyeOff, KeyRound } from "lucide-react";
+import { Eye, EyeOff, KeyRound, Mail } from "lucide-react";
 
 interface AdminPanelProps {
   currentUser: UserAccount;
@@ -31,6 +31,9 @@ export default function AdminPanel({
   const [role, setRole] = useState<Role>(Role.DESAIN);
   const [successMsg, setSuccessMsg] = useState("");
   const [lastInviteLink, setLastInviteLink] = useState("");
+  const [lastInvitedEmail, setLastInvitedEmail] = useState("");
+  const [lastInvitedFullName, setLastInvitedFullName] = useState("");
+  const [lastInvitedRole, setLastInvitedRole] = useState<Role>(Role.DESAIN);
   const [showPasswords, setShowPasswords] = useState<{ [userId: string]: boolean }>({});
 
   const toggleShowPassword = (userId: string) => {
@@ -46,19 +49,46 @@ export default function AdminPanel({
     }
   };
 
+  const getInviteLink = (userEmail: string) => {
+    if (!userEmail) return "";
+    let base = window.location.href.split('?')[0].split('#')[0];
+    if (base.includes("aistudio.google.com")) {
+      base = "https://ais-dev-nd2r4nfitkwjlh566m3elo-252295124501.asia-southeast1.run.app/";
+    }
+    if (!base.endsWith("/")) base += "/";
+    return `${base}?inviteEmail=${encodeURIComponent(userEmail.trim().toLowerCase())}`;
+  };
+
+  const handleOpenMailClient = (userEmail: string, userFullName: string, userRole: string) => {
+    if (!userEmail) return;
+    const inviteLink = getInviteLink(userEmail);
+    const subject = encodeURIComponent(`[Undangan Akses Portal] PT Sansico Medica - ${userRole}`);
+    const bodyText = encodeURIComponent(
+      `Yth. ${userFullName || "Pengguna"},\n\nAnda telah didaftarkan oleh Administrator untuk mengakses Portal Artwork Approval System PT Sansico Medica sebagai divisi ${userRole}.\n\nSilakan klik tautan verifikasi di bawah ini untuk menyetujui (ACC) undangan dan membuat kata sandi akun Anda:\n${inviteLink}\n\nTerima kasih,\nAdministrator Sansico Medica`
+    );
+    window.open(`mailto:${userEmail}?subject=${subject}&body=${bodyText}`, "_blank");
+  };
+
   const handleInviteSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !fullName.trim()) return;
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanFullName = fullName.trim();
+    if (!cleanEmail || !cleanFullName) return;
 
-    onInviteUser(email.trim().toLowerCase(), fullName.trim(), role);
+    onInviteUser(cleanEmail, cleanFullName, role);
 
-    const generatedLink = `https://sansico-alkes.com/invite/approve?email=${encodeURIComponent(
-      email.trim()
-    )}&token=${Math.random().toString(36).substring(2, 10)}`;
+    const generatedLink = getInviteLink(cleanEmail);
+
+    setLastInvitedEmail(cleanEmail);
+    setLastInvitedFullName(cleanFullName);
+    setLastInvitedRole(role);
+
+    // Automatically trigger mail client with target email
+    handleOpenMailClient(cleanEmail, cleanFullName, role);
 
     setLastInviteLink(generatedLink);
     setSuccessMsg(
-      `Undangan Email pendaftaran berhasil dikirimkan ke "${email.trim()}" sebagai ${role}!`
+      `✉️ Undangan Email pendaftaran BERHASIL dikirimkan ke "${cleanEmail}" (${role})! Aplikasi email/Gmail otomatis dibuka.`
     );
 
     setEmail("");
@@ -67,7 +97,7 @@ export default function AdminPanel({
 
   const handleCopyLink = (link: string) => {
     navigator.clipboard.writeText(link);
-    alert("Link Undangan Konfirmasi Email telah disalin!");
+    alert("✓ Link Verifikasi Undangan Email telah disalin ke clipboard!");
   };
 
   return (
@@ -101,18 +131,33 @@ export default function AdminPanel({
 
           {successMsg && (
             <div className="p-3.5 bg-emerald-50 text-emerald-900 border border-emerald-200 rounded-xl text-[11px] leading-relaxed space-y-2">
-              <p className="font-bold">{successMsg}</p>
+              <p className="font-bold flex items-center gap-1.5 text-emerald-800">
+                <Mail className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{successMsg}</span>
+              </p>
               {lastInviteLink && (
-                <div className="bg-white p-2 rounded-lg border border-emerald-200 text-[10px] font-mono break-all text-emerald-700">
-                  <span className="text-slate-400 block font-sans font-bold">Simulasi Link Email Undangan:</span>
-                  {lastInviteLink}
-                  <button
-                    type="button"
-                    onClick={() => handleCopyLink(lastInviteLink)}
-                    className="mt-1 bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-0.5 rounded font-sans font-bold text-[9px] block cursor-pointer"
-                  >
-                    Salin Link Undangan
-                  </button>
+                <div className="bg-white p-2.5 rounded-lg border border-emerald-200 text-[10px] font-mono break-all text-emerald-800 space-y-1.5">
+                  <span className="text-slate-400 block font-sans font-bold">Link Tautan Verifikasi/Undangan:</span>
+                  <div className="bg-slate-50 p-1.5 rounded border border-slate-200 font-mono text-[10px]">
+                    {lastInviteLink}
+                  </div>
+                  <div className="flex items-center gap-2 pt-1 font-sans">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenMailClient(lastInvitedEmail, lastInvitedFullName, lastInvitedRole)}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded font-bold text-[10px] cursor-pointer transition flex items-center gap-1"
+                    >
+                      <Mail className="w-3 h-3" />
+                      <span>Buka Aplikasi Email ({lastInvitedEmail})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyLink(lastInviteLink)}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded font-bold text-[10px] cursor-pointer transition"
+                    >
+                      Salin Link Undangan
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -270,6 +315,25 @@ export default function AdminPanel({
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex justify-end items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenMailClient(user.email, user.fullName, user.role)}
+                            className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[10px] py-1.5 px-2.5 rounded-lg border border-indigo-200 transition cursor-pointer flex items-center gap-1"
+                            title="Kirim email via Email Client / Gmail"
+                          >
+                            <Mail className="w-3 h-3 text-indigo-600" />
+                            <span>Kirim Email</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleCopyLink(getInviteLink(user.email))}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] py-1.5 px-2 rounded-lg transition cursor-pointer"
+                            title="Salin Link Tautan Verifikasi"
+                          >
+                            Salin Link
+                          </button>
+
                           {isPendingApproval || isPendingInvite ? (
                             <button
                               type="button"

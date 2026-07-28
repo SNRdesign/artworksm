@@ -39,7 +39,7 @@ async function startServer() {
         return res.status(500).json({ error: "GEMINI_API_KEY environment variable is not set on the server." });
       }
 
-      console.log(`Analyzing file: ${fileName} (${mimeType}) with Gemini 2.5 Flash...`);
+      console.log(`Analyzing file: ${fileName} (${mimeType}) with Gemini 3.6 Flash...`);
 
       const filePart = {
         inlineData: {
@@ -62,7 +62,7 @@ Please extract the following information accurately from the text or visual cont
 Ensure the output matches the exact text or numbers on the document.`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.6-flash",
         contents: [filePart, prompt],
         config: {
           responseMimeType: "application/json",

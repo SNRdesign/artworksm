@@ -1,9 +1,94 @@
 import { Project } from "../types";
+import * as pdfjsLib from "pdfjs-dist";
+import { getFileFromIndexedDB } from "./fileStorage";
 
-export function printApprovalSheetA4(project: Project) {
+if (typeof window !== "undefined" && pdfjsLib.GlobalWorkerOptions) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version || "4.10.38"}/build/pdf.worker.min.mjs`;
+}
+
+function dataUrlToUint8Array(dataUrl: string): Uint8Array {
+  try {
+    const base64Index = dataUrl.indexOf(";base64,");
+    if (base64Index !== -1) {
+      const base64 = dataUrl.substring(base64Index + 8);
+      const binaryString = window.atob(base64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return bytes;
+    }
+  } catch (e) {
+    console.error("Error decoding base64 dataUrl:", e);
+  }
+  return new Uint8Array(0);
+}
+
+export async function convertPdfToImageDataUrl(url: string, pageNumber: number = 1): Promise<string | null> {
+  if (!url) return null;
+
+  if (url.startsWith("data:image/") || url.match(/\.(png|jpg|jpeg|gif|webp)(\?.*)?$/i)) {
+    return url;
+  }
+
+  try {
+    let loadingTask: any;
+    if (url.startsWith("data:")) {
+      const bytes = dataUrlToUint8Array(url);
+      if (bytes.length === 0) return null;
+      loadingTask = pdfjsLib.getDocument({ data: bytes });
+    } else {
+      loadingTask = pdfjsLib.getDocument({ url });
+    }
+
+    const pdfDoc = await loadingTask.promise;
+    const targetPage = Math.min(Math.max(1, pageNumber), pdfDoc.numPages);
+    const page = await pdfDoc.getPage(targetPage);
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    // Render page at scale 2.5 for crisp print quality
+    const scale = 2.5;
+    const viewport = page.getViewport({ scale });
+
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+
+    const renderContext = {
+      canvasContext: ctx,
+      viewport: viewport,
+    };
+
+    await page.render(renderContext).promise;
+    return canvas.toDataURL("image/png");
+  } catch (err) {
+    console.error("Gagal mengonversi PDF ke gambar untuk pencetakan:", err);
+    return null;
+  }
+}
+
+export async function printApprovalSheetA4(project: Project, pageNumber: number = 1) {
+  let pdfUrl = project.pdfFileUrl;
+
+  if (!pdfUrl) {
+    try {
+      const cached = await getFileFromIndexedDB(`pdf_${project.id}`);
+      if (cached) pdfUrl = cached;
+    } catch (e) {
+      console.warn("Could not load cached pdf from indexedDB:", e);
+    }
+  }
+
+  let displayImageUrl: string | null = null;
+  if (pdfUrl) {
+    displayImageUrl = await convertPdfToImageDataUrl(pdfUrl, pageNumber);
+  }
+
   const printWindow = window.open("", "_blank", "width=900,height=1100");
   if (!printWindow) {
-    // Fallback if popup blocked
     window.print();
     return;
   }
@@ -21,11 +106,6 @@ export function printApprovalSheetA4(project: Project) {
   const purchasingDateStr = project.purchasingApprovedAt
     ? new Date(project.purchasingApprovedAt).toLocaleDateString("id-ID", { day: "2-digit", month: "2-digit", year: "numeric" })
     : "-";
-
-  const isImageFile = project.pdfFileUrl && (
-    project.pdfFileUrl.startsWith("data:image/") ||
-    project.pdfFileUrl.match(/\.(png|jpg|jpeg|gif|webp)(\?.*)?$/i)
-  );
 
   const htmlContent = `
 <!DOCTYPE html>
@@ -351,8 +431,8 @@ export function printApprovalSheetA4(project: Project) {
           </span>
         </div>
 
-        ${isImageFile && project.pdfFileUrl ? `
-          <img src="${project.pdfFileUrl}" class="img-preview" alt="Artwork Preview" />
+        ${displayImageUrl ? `
+          <img src="${displayImageUrl}" class="img-preview" alt="Artwork Preview" />
         ` : `
           <div class="text-summary">
             <div style="font-weight:700; color:#0f172a; margin-bottom:4px;">TEKS KONTEN & SPESIFIKASI CETAK:</div>

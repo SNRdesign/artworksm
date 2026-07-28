@@ -287,6 +287,7 @@ export default function App() {
 
   // Selected project for viewing final approval sheet
   const [viewingSheetProject, setViewingSheetProject] = useState<Project | null>(null);
+  const [sheetSelectedPage, setSheetSelectedPage] = useState<number>(1);
 
   // Active view tab for Administrator so they can perform CRUD across all roles/divisions
   const [adminActiveTab, setAdminActiveTab] = useState<string>("users");
@@ -656,53 +657,28 @@ export default function App() {
     saveNotificationToFirestore(notif);
   };
 
-  const handleRegisterOrConfirmUser = (data: { email: string; fullName: string; role: Role; username: string; password?: string }) => {
+  const handleAcceptInvite = (data: { email: string; fullName: string; password?: string }) => {
     const existingUser = users.find(u => u.email.toLowerCase() === data.email.toLowerCase());
-    if (existingUser) {
-      const updatedUser: UserAccount = {
-        ...existingUser,
-        fullName: data.fullName || existingUser.fullName,
-        username: data.username || existingUser.username,
-        role: data.role || existingUser.role,
-        password: data.password || existingUser.password || "sansico123",
-        invitationStatus: "PENDING_APPROVAL",
-        isActive: false,
-      };
-      setUsers(prev => prev.map(u => u.id === existingUser.id ? updatedUser : u));
-      saveUserToFirestore(updatedUser);
-      const notif: NotificationLog = {
-        id: `sys-confirm-${Date.now()}`,
-        timestamp: currentSimulatedTime,
-        type: "INFO",
-        message: `[FORMULIR DITERIMA] Pengguna "${updatedUser.fullName}" (${updatedUser.email}) telah mengisi formulir konfirmasi email. Menunggu ACC / Persetujuan dari Administrator.`,
-      };
-      setNotifications(prev => [notif, ...prev]);
-      saveNotificationToFirestore(notif);
-    } else {
-      const newUser: UserAccount = {
-        id: `user-${Date.now()}`,
-        username: data.username,
-        email: data.email,
-        fullName: data.fullName,
-        role: data.role,
-        password: data.password || "sansico123",
-        isActive: false,
-        invitationStatus: "PENDING_APPROVAL",
-        invitedAt: currentSimulatedTime,
-        invitedBy: "Pengisian Formulir Mandiri",
-        createdAt: currentSimulatedTime,
-      };
-      setUsers(prev => [newUser, ...prev]);
-      saveUserToFirestore(newUser);
-      const notif: NotificationLog = {
-        id: `sys-reg-${Date.now()}`,
-        timestamp: currentSimulatedTime,
-        type: "INFO",
-        message: `[FORMULIR PENDAFTARAN] Pengguna baru "${newUser.fullName}" (${newUser.email}) telah mengirimkan formulir pendaftaran. Menunggu ACC / Persetujuan Administrator.`,
-      };
-      setNotifications(prev => [notif, ...prev]);
-      saveNotificationToFirestore(notif);
-    }
+    if (!existingUser) return;
+
+    const updatedUser: UserAccount = {
+      ...existingUser,
+      fullName: data.fullName || existingUser.fullName,
+      password: data.password || existingUser.password || "sansico123",
+      invitationStatus: "ACTIVE",
+      isActive: true,
+    };
+    setUsers(prev => prev.map(u => u.id === existingUser.id ? updatedUser : u));
+    saveUserToFirestore(updatedUser);
+
+    const notif: NotificationLog = {
+      id: `sys-acc-${Date.now()}`,
+      timestamp: currentSimulatedTime,
+      type: "INFO",
+      message: `[UNDANGAN DISENTUJUI (ACC)] Pengguna "${updatedUser.fullName}" (${updatedUser.email}) telah menyetujui undangan email dari Administrator & mengaktifkan akun (${updatedUser.role}).`,
+    };
+    setNotifications(prev => [notif, ...prev]);
+    saveNotificationToFirestore(notif);
   };
 
   const handleUpdateUserPassword = (userId: string, newPass: string) => {
@@ -1151,7 +1127,7 @@ export default function App() {
       <LoginPage 
         users={users} 
         onLogin={handleLogin} 
-        onRegisterUser={handleRegisterOrConfirmUser}
+        onAcceptInvite={handleAcceptInvite}
       />
     );
   }
@@ -1757,7 +1733,10 @@ export default function App() {
                         )}
                       </div>
                       <button
-                        onClick={() => setViewingSheetProject(p)}
+                        onClick={() => {
+                          setViewingSheetProject(p);
+                          setSheetSelectedPage(1);
+                        }}
                         id={`btn-view-sheet-${p.id}`}
                         className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-1 px-2 rounded-lg text-[10px] transition duration-150 shadow-sm"
                       >
@@ -1796,21 +1775,22 @@ export default function App() {
             <div className="flex-grow overflow-y-auto pr-1">
               <ContentApprovalSheet 
                 project={viewingSheetProject} 
-                onPrint={() => printApprovalSheetA4(viewingSheetProject)}
+                onPageChange={(p) => setSheetSelectedPage(p)}
+                onPrint={(p) => printApprovalSheetA4(viewingSheetProject, p || sheetSelectedPage)}
               />
             </div>
 
             <div className="border-t border-slate-100 pt-3 mt-4 flex justify-between items-center no-print">
               <span className="text-[10px] text-slate-400 font-mono">
-                Sistem Otentikasi Sansico Medica (A4 Layout Automatic)
+                Sistem Otentikasi Sansico Medica (A4 Layout Automatic - Halaman {sheetSelectedPage})
               </span>
               <button
-                onClick={() => printApprovalSheetA4(viewingSheetProject)}
+                onClick={() => printApprovalSheetA4(viewingSheetProject, sheetSelectedPage)}
                 className="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-2 px-4 rounded-lg transition flex items-center gap-1.5 shadow-sm cursor-pointer"
                 id="btn-print-action"
               >
                 <Printer className="w-4 h-4 text-emerald-400" />
-                Cetak Lembar Pengesahan (A4)
+                Cetak Lembar Pengesahan (A4) - Hal. {sheetSelectedPage}
               </button>
             </div>
           </div>

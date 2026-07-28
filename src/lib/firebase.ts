@@ -68,12 +68,31 @@ export function subscribeNotifications(callback: (logs: NotificationLog[]) => vo
   });
 }
 
+// --- Data Sanitizer for Firestore (Replaces undefined with null) ---
+export function sanitizeForFirestore<T>(obj: T): T {
+  if (obj === undefined) {
+    return null as any;
+  }
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(sanitizeForFirestore) as any;
+  }
+  const cleaned: Record<string, any> = {};
+  for (const key of Object.keys(obj)) {
+    const val = (obj as Record<string, any>)[key];
+    cleaned[key] = val === undefined ? null : sanitizeForFirestore(val);
+  }
+  return cleaned as T;
+}
+
 // --- CRUD Operations ---
 
 // Save or Update a User
 export async function saveUserToFirestore(user: UserAccount) {
   try {
-    await setDoc(doc(db, USERS_COL, user.id), user, { merge: true });
+    await setDoc(doc(db, USERS_COL, user.id), sanitizeForFirestore(user), { merge: true });
   } catch (err) {
     console.error("Error saving user to Firestore:", err);
   }
@@ -185,13 +204,13 @@ export async function saveProjectToFirestore(project: Project) {
       }
     }
 
-    const docToSave = {
+    const docToSave = sanitizeForFirestore({
       ...project,
       pdfFileUrl: pdfUrlToStore || null,
       nieFileUrl: nieUrlToStore || null,
       hasPdfChunks,
       hasNieChunks,
-    };
+    });
 
     await setDoc(doc(db, PROJECTS_COL, project.id), docToSave, { merge: true });
   } catch (err: any) {
@@ -234,7 +253,7 @@ export async function clearNotificationsInFirestore() {
 // Save or Update a Notification Log
 export async function saveNotificationToFirestore(log: NotificationLog) {
   try {
-    await setDoc(doc(db, NOTIFICATIONS_COL, log.id), log, { merge: true });
+    await setDoc(doc(db, NOTIFICATIONS_COL, log.id), sanitizeForFirestore(log), { merge: true });
   } catch (err) {
     console.error("Error saving notification to Firestore:", err);
   }
@@ -267,7 +286,7 @@ export async function seedInitialFirestoreData(
       console.log("Seeding default users to Firestore...");
       const batch = writeBatch(db);
       defaultUsers.forEach((u) => {
-        batch.set(doc(db, USERS_COL, u.id), u);
+        batch.set(doc(db, USERS_COL, u.id), sanitizeForFirestore(u));
       });
       await batch.commit();
     }
@@ -277,7 +296,7 @@ export async function seedInitialFirestoreData(
       console.log("Seeding default projects to Firestore...");
       const batch = writeBatch(db);
       defaultProjects.forEach((p) => {
-        batch.set(doc(db, PROJECTS_COL, p.id), p);
+        batch.set(doc(db, PROJECTS_COL, p.id), sanitizeForFirestore(p));
       });
       await batch.commit();
     }
@@ -287,7 +306,7 @@ export async function seedInitialFirestoreData(
       console.log("Seeding default notifications to Firestore...");
       const batch = writeBatch(db);
       defaultNotifications.forEach((n) => {
-        batch.set(doc(db, NOTIFICATIONS_COL, n.id), n);
+        batch.set(doc(db, NOTIFICATIONS_COL, n.id), sanitizeForFirestore(n));
       });
       await batch.commit();
     }

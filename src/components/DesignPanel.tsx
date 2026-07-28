@@ -7,6 +7,7 @@ import React, { useState } from "react";
 import { Project, DocType, ProjectStatus, UserAccount, Role } from "../types";
 import { PlusCircle, Image, CheckCircle, AlertOctagon, HelpCircle, History, RefreshCw, UploadCloud, FileText, Trash2, Sparkles, Loader2, ExternalLink } from "lucide-react";
 import { dataUrlToBlobUrl } from "../lib/fileStorage";
+import { PdfViewer } from "./PdfViewer";
 
 interface DesignPanelProps {
   currentUser: UserAccount;
@@ -188,33 +189,58 @@ function splitRefCode(fullCode: string): { prefix: string; suffix: string } {
 }
 
 function splitNieNumber(fullNie: string): { prefix: string; suffix: string } {
-  if (!fullNie) return { prefix: "KEMENKES RI AKD", suffix: "" };
+  if (!fullNie || !fullNie.trim()) return { prefix: "KEMENKES RI AKD", suffix: "" };
   const trimmed = fullNie.trim();
   const upper = trimmed.toUpperCase();
 
-  if (upper.includes("AKL")) {
-    const idx = upper.indexOf("AKL");
-    let suffix = trimmed.substring(idx + 3).trim();
-    suffix = suffix.replace(/^[-_:\s]+/, "");
-    return { prefix: "KEMENKES RI AKL", suffix };
-  } else if (upper.includes("AKD")) {
-    const idx = upper.indexOf("AKD");
-    let suffix = trimmed.substring(idx + 3).trim();
-    suffix = suffix.replace(/^[-_:\s]+/, "");
-    return { prefix: "KEMENKES RI AKD", suffix };
-  } else if (upper.includes("PKRT")) {
-    const idx = upper.indexOf("PKRT");
-    let suffix = trimmed.substring(idx + 4).trim();
-    suffix = suffix.replace(/^[-_:\s]+/, "");
-    return { prefix: "KEMENKES RI PKRT", suffix };
-  } else if (upper.startsWith("KEMENKES RI")) {
-    let suffix = trimmed.substring(11).trim();
-    suffix = suffix.replace(/^[-_:\s]+/, "");
-    return { prefix: "KEMENKES RI AKD", suffix };
+  const isAkl = upper.includes("AKL") || upper.includes("IMPORT") || upper.includes("LTD");
+  const prefix = isAkl ? "KEMENKES RI AKL" : "KEMENKES RI AKD";
+
+  // Clean out words like KEMENKES, RI, AKD, AKL, PKRT, NIE, etc., keeping only the digit sequence
+  const cleanDigits = trimmed.replace(/[^0-9]/g, "");
+
+  return { prefix, suffix: cleanDigits };
+}
+
+function extractNieFromText(nieCandidate: string, artworkText: string, fileName: string): string {
+  if (nieCandidate && nieCandidate.trim()) {
+    const { prefix, suffix } = splitNieNumber(nieCandidate);
+    if (suffix) {
+      return `${prefix} ${suffix}`;
+    }
   }
   
-  const cleanDigits = trimmed.replace(/[^0-9]/g, "");
-  return { prefix: "KEMENKES RI AKD", suffix: cleanDigits || trimmed };
+  const textToSearch = `${fileName}\n${artworkText}`;
+  
+  // 1. Look for AKD / AKL with digits
+  const kemenkesMatch = textToSearch.match(/(?:KEMENKES\s*RI\s*)?(AKD|AKL)[\s\-_.:]*([0-9.\-\s]{8,18})/i);
+  if (kemenkesMatch) {
+    const prefix = kemenkesMatch[1].toUpperCase() === "AKL" ? "AKL" : "AKD";
+    const digits = kemenkesMatch[2].replace(/[^0-9]/g, "");
+    if (digits.length >= 6) {
+      return `KEMENKES RI ${prefix} ${digits}`;
+    }
+  }
+
+  // 2. Look for NIE / Izin Edar / Reg keyword followed by digits
+  const nieKeywordMatch = textToSearch.match(/(?:NIE|IZIN\s*EDAR|REG|REGISTRATION)[\s\-_.:]*(?:RI)?[\s\-_.:]*(?:(AKD|AKL)[\s\-_.:]*)?([0-9.\-\s]{8,18})/i);
+  if (nieKeywordMatch) {
+    const prefix = (nieKeywordMatch[1] && nieKeywordMatch[1].toUpperCase() === "AKL") ? "AKL" : "AKD";
+    const digits = nieKeywordMatch[2].replace(/[^0-9]/g, "");
+    if (digits.length >= 6) {
+      return `KEMENKES RI ${prefix} ${digits}`;
+    }
+  }
+
+  // 3. Standalone 10 to 12 digits
+  const digitMatch = textToSearch.match(/\b(\d{10,12})\b/);
+  if (digitMatch) {
+    const isImport = textToSearch.toLowerCase().includes("akl") || textToSearch.toLowerCase().includes("import") || textToSearch.toLowerCase().includes("ltd");
+    const prefix = isImport ? "AKL" : "AKD";
+    return `KEMENKES RI ${prefix} ${digitMatch[1]}`;
+  }
+
+  return "";
 }
 
 function applyDocTypePrefix(name: string, type: DocType): string {
@@ -359,33 +385,14 @@ export default function DesignPanel({
           <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:14px_24px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] opacity-30"></div>
           
           {imageUrl ? (
-            <div className="bg-white border border-slate-300 shadow-xl rounded p-3 relative w-full max-w-sm flex flex-col items-center justify-center select-none overflow-hidden min-h-[180px]">
-              {isPdf ? (
-                <div className="w-full flex flex-col items-center">
-                  <object 
-                    data={`${pdfBlobUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-                    type="application/pdf"
-                    className="w-full h-[200px] rounded border border-slate-200"
-                  >
-                    <embed src={pdfBlobUrl || undefined} type="application/pdf" className="w-full h-[200px] rounded" />
-                  </object>
-                  <div className="mt-2 text-center">
-                    <a 
-                      href={pdfBlobUrl || "#"} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 text-[11px] text-indigo-600 hover:text-indigo-800 font-bold bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg border border-indigo-200 transition shadow-xs cursor-pointer"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      Buka PDF Layar Penuh (Cetak Uncompressed 100%) ↗
-                    </a>
-                  </div>
-                </div>
-              ) : (
-                <img src={imageUrl} alt="Uploaded Artwork" className="max-h-[190px] w-auto object-contain rounded border border-slate-100 shadow-sm" referrerPolicy="no-referrer" />
-              )}
-              <div className="text-[9px] text-slate-500 mt-2.5 font-mono flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-indigo-500 animate-pulse" /> Terbaca: {ref} • {nie}
+            <div className="w-full max-w-sm flex flex-col items-center select-none overflow-hidden">
+              <PdfViewer
+                url={imageUrl}
+                fileName={fileName}
+                maxHeight="280px"
+              />
+              <div className="text-[9px] text-slate-400 mt-2 font-mono flex items-center gap-1 bg-slate-900/90 px-2.5 py-1 rounded-md border border-slate-800">
+                <Sparkles className="w-3 h-3 text-indigo-400 animate-pulse" /> Terbaca: {ref || "REF- Auto"} • {nie || "NIE- Auto"}
               </div>
             </div>
           ) : (
@@ -557,7 +564,8 @@ const fileToBase64 = (file: File): Promise<string> => {
           setEditPdfFile({ name: fileName, size: fileSizeStr });
           setIsEditScanning(false);
           setEditRefCode(parsed.refCode || "");
-          setEditNieNumber(parsed.nieNumber || "");
+          const finalNie = extractNieFromText(parsed.nieNumber || "", parsed.artworkText || "", fileName);
+          setEditNieNumber(finalNie);
           setEditArtworkText(parsed.artworkText || "");
         } else {
           setPdfFile({ name: fileName, size: fileSizeStr });
@@ -566,7 +574,8 @@ const fileToBase64 = (file: File): Promise<string> => {
           if (parsed.docType) setDocType(finalDocType);
           setProjName(applyDocTypePrefix(parsed.name || "", finalDocType));
           setRefCode(parsed.refCode || "");
-          setNieNumber(parsed.nieNumber || "");
+          const finalNie = extractNieFromText(parsed.nieNumber || "", parsed.artworkText || "", fileName);
+          setNieNumber(finalNie);
           setArtworkText(parsed.artworkText || "");
         }
       }, 300);
@@ -591,7 +600,8 @@ const fileToBase64 = (file: File): Promise<string> => {
           setEditPdfFile({ name: fileName, size: fileSizeStr });
           setIsEditScanning(false);
           setEditRefCode(fallbackParsed.refCode);
-          setEditNieNumber(fallbackParsed.nieNumber);
+          const finalNie = extractNieFromText(fallbackParsed.nieNumber, fallbackParsed.artworkText, fileName);
+          setEditNieNumber(finalNie);
           setEditArtworkText(fallbackParsed.artworkText);
         } else {
           setPdfFile({ name: fileName, size: fileSizeStr });
@@ -599,7 +609,8 @@ const fileToBase64 = (file: File): Promise<string> => {
           setDocType(fallbackParsed.docType);
           setProjName(applyDocTypePrefix(fallbackParsed.name, fallbackParsed.docType));
           setRefCode(fallbackParsed.refCode);
-          setNieNumber(fallbackParsed.nieNumber);
+          const finalNie = extractNieFromText(fallbackParsed.nieNumber, fallbackParsed.artworkText, fileName);
+          setNieNumber(finalNie);
           setArtworkText(fallbackParsed.artworkText);
         }
       }, 300);
@@ -997,12 +1008,10 @@ const fileToBase64 = (file: File): Promise<string> => {
                     <select
                       value={editNiePrefix}
                       onChange={(e) => setEditNiePrefix(e.target.value)}
-                      className="text-xs px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 font-mono font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 shrink-0"
+                      className="text-xs px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 font-mono font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 shrink-0 cursor-pointer"
                     >
                       <option value="KEMENKES RI AKD">KEMENKES RI AKD</option>
                       <option value="KEMENKES RI AKL">KEMENKES RI AKL</option>
-                      <option value="KEMENKES RI PKRT">KEMENKES RI PKRT</option>
-                      <option value="KEMENKES RI">KEMENKES RI</option>
                     </select>
                     <input
                       type="text"
@@ -1331,12 +1340,10 @@ const fileToBase64 = (file: File): Promise<string> => {
                     <select
                       value={niePrefix}
                       onChange={(e) => setNiePrefix(e.target.value)}
-                      className="text-xs px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 font-mono font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 shrink-0"
+                      className="text-xs px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 font-mono font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 shrink-0 cursor-pointer"
                     >
                       <option value="KEMENKES RI AKD">KEMENKES RI AKD</option>
                       <option value="KEMENKES RI AKL">KEMENKES RI AKL</option>
-                      <option value="KEMENKES RI PKRT">KEMENKES RI PKRT</option>
-                      <option value="KEMENKES RI">KEMENKES RI</option>
                     </select>
                     <input
                       type="text"

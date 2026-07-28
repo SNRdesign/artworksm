@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from "react";
 import { Project, ProjectStatus, UserAccount, Role } from "../types";
 import { dataUrlToBlobUrl } from "../lib/fileStorage";
+import { PdfViewer } from "./PdfViewer";
 import { 
   ShieldCheck, 
   AlertOctagon, 
@@ -632,39 +633,13 @@ ${309 + streamLength + 45}
 
                   {/* Document Image Preview if available */}
                   {selectedProject.pdfFileUrl && (
-                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-xs text-center space-y-2">
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-xs text-center space-y-2">
                       <span className="text-[9px] font-mono text-slate-400 font-bold uppercase block">Pratinjau Visual Dokumen Cetak</span>
-                      {selectedProject.pdfFileUrl.startsWith("data:image/") || selectedProject.pdfFileUrl.match(/\.(png|jpg|jpeg|gif|webp)(\?.*)?$/i) ? (
-                        <img
-                          src={selectedProject.pdfFileUrl}
-                          alt="Gambar Dokumen Cetak"
-                          className="max-h-56 mx-auto object-contain rounded border border-slate-100 p-1"
-                        />
-                      ) : (
-                        (() => {
-                          const pdfBlobUrl = dataUrlToBlobUrl(selectedProject.pdfFileUrl);
-                          return (
-                            <div className="flex flex-col items-center">
-                              <object
-                                data={`${pdfBlobUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-                                type="application/pdf"
-                                className="w-full h-64 border-0 rounded bg-white"
-                              >
-                                <embed src={pdfBlobUrl} type="application/pdf" className="w-full h-64 rounded" />
-                              </object>
-                              <a
-                                href={pdfBlobUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg border border-indigo-200 transition shadow-xs cursor-pointer"
-                              >
-                                <ExternalLink className="w-3.5 h-3.5" />
-                                Buka PDF Layar Penuh (Kualitas Cetak 100%) ↗
-                              </a>
-                            </div>
-                          );
-                        })()
-                      )}
+                      <PdfViewer
+                        url={selectedProject.pdfFileUrl}
+                        fileName={selectedProject.pdfFileName || selectedProject.name}
+                        maxHeight="320px"
+                      />
                     </div>
                   )}
 
