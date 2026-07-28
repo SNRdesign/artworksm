@@ -3,7 +3,31 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Project, ProjectStatus, NotificationLog } from "./types";
+import { Project, ProjectStatus, NotificationLog, Role } from "./types";
+
+/**
+ * Helper to determine if a notification is relevant to a user's role.
+ */
+export function isNotificationForRole(notif: NotificationLog, userRole: Role): boolean {
+  if (userRole === Role.ADMINISTRATOR) return true;
+
+  if (notif.targetRoles && Array.isArray(notif.targetRoles) && notif.targetRoles.length > 0) {
+    return notif.targetRoles.includes(userRole);
+  }
+
+  // Text-based fallback matching for older logs
+  const msg = (notif.message || "").toLowerCase();
+  if (userRole === Role.DESAIN) {
+    return msg.includes("desain") || msg.includes("ditolak") || msg.includes("revisi") || msg.includes("kembali ke tim desain");
+  }
+  if (userRole === Role.PRODUK) {
+    return msg.includes("produk") || msg.includes("ditinjau") || msg.includes("acc") || msg.includes("nie");
+  }
+  if (userRole === Role.PURCHASING) {
+    return msg.includes("purchasing") || msg.includes("hold") || msg.includes("cetak") || msg.includes("rilis") || msg.includes("alarm expired");
+  }
+  return false;
+}
 
 /**
  * Checks if a given Date is within the working hours:
@@ -134,11 +158,17 @@ export function checkTimeBasedEvents(
         ).length;
         
         if (pendingCount > 0) {
+          const targetRoles: Role[] = [];
+          if (projects.some(p => p.status === ProjectStatus.PENDING_PRODUCT)) targetRoles.push(Role.PRODUK);
+          if (projects.some(p => p.status === ProjectStatus.NEED_REVISION)) targetRoles.push(Role.DESAIN);
+          targetRoles.push(Role.ADMINISTRATOR);
+
           logs.push({
             id: `summary-${currDayStr}-${Date.now()}-${Math.random()}`,
             timestamp: new Date(tempDate.getFullYear(), tempDate.getMonth(), tempDate.getDate(), 8, 0, 0).toISOString(),
             type: "INFO",
             message: `[PENGINGAT PAGI - 08:00] Terdapat ${pendingCount} berkas artwork yang tertahan dalam antrean persetujuan. Mohon segera diproses.`,
+            targetRoles,
           });
         }
       }
@@ -152,11 +182,17 @@ export function checkTimeBasedEvents(
         );
         
         if (untouchedProjects.length > 0) {
+          const targetRoles: Role[] = [];
+          if (untouchedProjects.some(p => p.status === ProjectStatus.PENDING_PRODUCT)) targetRoles.push(Role.PRODUK);
+          if (untouchedProjects.some(p => p.status === ProjectStatus.NEED_REVISION)) targetRoles.push(Role.DESAIN);
+          targetRoles.push(Role.ADMINISTRATOR);
+
           logs.push({
             id: `warning-${currDayStr}-${Date.now()}-${Math.random()}`,
             timestamp: new Date(tempDate.getFullYear(), tempDate.getMonth(), tempDate.getDate(), 14, 0, 0).toISOString(),
             type: "WARNING",
             message: `[PERINGATAN WASPADA - 14:00] Tindakan diperlukan! ${untouchedProjects.length} proyek belum disentuh hari ini. Segera lakukan verifikasi demi menghindari keterlambatan cetak.`,
+            targetRoles,
           });
         }
       }
@@ -182,9 +218,15 @@ export function checkTimeBasedEvents(
         // If we crossed a new 6-working-hour boundary
         if (remindersCount > prevRemindersCount) {
           let roleName = "";
-          if (proj.status === ProjectStatus.PENDING_PRODUCT) roleName = "Tim Produk";
-          if (proj.status === ProjectStatus.NEED_REVISION) roleName = "Tim Desain";
-          if (proj.status === ProjectStatus.DRAFT) roleName = "Tim Desain";
+          let targetRoles: Role[] = [Role.ADMINISTRATOR];
+          if (proj.status === ProjectStatus.PENDING_PRODUCT) {
+            roleName = "Tim Produk";
+            targetRoles.push(Role.PRODUK);
+          }
+          if (proj.status === ProjectStatus.NEED_REVISION || proj.status === ProjectStatus.DRAFT) {
+            roleName = "Tim Desain";
+            targetRoles.push(Role.DESAIN);
+          }
           
           logs.push({
             id: `6hr-${proj.id}-${remindersCount}-${Date.now()}`,
@@ -193,6 +235,7 @@ export function checkTimeBasedEvents(
             message: `[PENGINGAT 6 JAM] Proyek "${proj.name}" (${proj.docType} V${proj.version}) telah tertahan selama ${Math.round(workingHoursSinceChange)} jam kerja di antrean ${roleName}. Mohon segera ditindaklanjuti!`,
             projectId: proj.id,
             projectName: proj.name,
+            targetRoles,
           });
         }
       }

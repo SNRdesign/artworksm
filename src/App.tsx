@@ -20,7 +20,8 @@ import {
   getWorkingMinutesBetween,
   checkTimeBasedEvents,
   generateDigitalSignature,
-  formatIndonesianDate
+  formatIndonesianDate,
+  isNotificationForRole
 } from "./utils";
 
 import AdminPanel from "./components/AdminPanel";
@@ -498,14 +499,17 @@ export default function App() {
         
         // Skip on initial page load to avoid spamming historical alerts
         if (prevId !== null) {
-          const title = newestNotif.type === "WARNING" ? "Peringatan Sistem Approval" : "Info Alur Kerja";
-          triggerBrowserNotification(title, newestNotif.message);
+          // Only trigger browser notification popup if relevant to the logged-in user's role
+          if (isNotificationForRole(newestNotif, currentUser.role)) {
+            const title = newestNotif.type === "WARNING" ? "Peringatan Sistem Approval" : "Info Alur Kerja";
+            triggerBrowserNotification(title, newestNotif.message);
+          }
         }
       }
     } else {
       lastNotificationIdRef.current = "";
     }
-  }, [notifications]);
+  }, [notifications, currentUser.role]);
 
   // Monitor role switching or pending count updates for active role
   const projectStatusesString = projects.map(p => `${p.id}:${p.status}`).join(",");
@@ -572,11 +576,13 @@ export default function App() {
       expiredList.forEach(p => {
         saveProjectToFirestore({ ...p, holdAlarmSet: false });
 
-        // Trigger browser sound if possible or a desktop notification
-        triggerBrowserNotification(
-          "ALARM: Estimasi Hold Habis!",
-          `Proyek "${p.name}" telah melewati estimasi hold cetak. Tindakan segera diperlukan!`
-        );
+        // Trigger browser notification only if logged in as Purchasing or Administrator
+        if (currentUser.role === Role.PURCHASING || currentUser.role === Role.ADMINISTRATOR) {
+          triggerBrowserNotification(
+            "ALARM: Estimasi Hold Habis!",
+            `Proyek "${p.name}" telah melewati estimasi hold cetak. Tindakan segera diperlukan!`
+          );
+        }
 
         saveNotificationToFirestore({
           id: `alarm-expired-${p.id}-${Date.now()}`,
@@ -585,10 +591,11 @@ export default function App() {
           message: `[ALARM EXPIRED] Waktu hold cetak proyek "${p.name}" telah habis! Tim Purchasing wajib memberikan kepastian lanjut cetak atau menambah waktu hold.`,
           projectId: p.id,
           projectName: p.name,
+          targetRoles: [Role.PURCHASING, Role.ADMINISTRATOR],
         });
       });
     }
-  }, [projects, currentSimulatedTime]);
+  }, [projects, currentSimulatedTime, currentUser.role]);
 
   // --- ACTIONS ---
 
@@ -658,6 +665,7 @@ export default function App() {
       timestamp: currentSimulatedTime,
       type: "INFO",
       message: `[UNDANGAN EMAIL] Administrator mengirim undangan pendaftaran ke "${email}" sebagai ${role}. Status: Menunggu Pengisian Formulir User.`,
+      targetRoles: [Role.ADMINISTRATOR],
     };
     setNotifications(prev => [notif, ...prev]);
     saveNotificationToFirestore(notif);
@@ -682,6 +690,7 @@ export default function App() {
       timestamp: currentSimulatedTime,
       type: "INFO",
       message: `[UNDANGAN DISENTUJUI (ACC)] Pengguna "${updatedUser.fullName}" (${updatedUser.email}) telah menyetujui undangan email dari Administrator & mengaktifkan akun (${updatedUser.role}).`,
+      targetRoles: [Role.ADMINISTRATOR],
     };
     setNotifications(prev => [notif, ...prev]);
     saveNotificationToFirestore(notif);
@@ -824,6 +833,7 @@ export default function App() {
       timestamp: currentSimulatedTime,
       type: "INFO",
       message: `[ALUR KERJA] Proyek "${name}" (V1) telah diinisiasi oleh ${currentUser.fullName} via file PDF "${pdfFileName || 'artwork.pdf'}" dan dikirim ke antrean Tim Produk.`,
+      targetRoles: [Role.PRODUK, Role.ADMINISTRATOR],
     };
     setNotifications(prev => [notif, ...prev]);
     saveNotificationToFirestore(notif);
@@ -899,6 +909,7 @@ export default function App() {
       timestamp: currentSimulatedTime,
       type: "INFO",
       message: `[REVISI OK] Proyek "${newProjectName}" diperbarui ke V${nextVer} oleh Desainer via file PDF "${finalPdfName || 'artwork_revised.pdf'}" dan siap ditinjau kembali oleh Tim Produk.`,
+      targetRoles: [Role.PRODUK, Role.ADMINISTRATOR],
     };
     setNotifications(prev => [notif, ...prev]);
     saveNotificationToFirestore(notif);
@@ -934,6 +945,7 @@ export default function App() {
         timestamp: currentSimulatedTime,
         type: "INFO",
         message: `[ALUR KERJA] Proyek "${proj.name}" disetujui (ACC) oleh Tim Produk (${picName}). Stempel Digital Produk berhasil diterbitkan.`,
+        targetRoles: [Role.PURCHASING, Role.ADMINISTRATOR],
       };
       setNotifications(prev => [notif, ...prev]);
       saveNotificationToFirestore(notif);
@@ -968,6 +980,7 @@ export default function App() {
         timestamp: currentSimulatedTime,
         type: "WARNING",
         message: `[DITOLAK] Proyek "${proj.name}" (V${proj.version}) DITOLAK oleh Tim Produk (${picName}) karena kesalahan pada komponen "${notes.component}". Status kembali ke Tim Desain untuk revisi.`,
+        targetRoles: [Role.DESAIN, Role.ADMINISTRATOR],
       };
       setNotifications(prev => [notif, ...prev]);
       saveNotificationToFirestore(notif);
@@ -995,6 +1008,7 @@ export default function App() {
           timestamp: currentSimulatedTime,
           type: "INFO",
           message: `[UNGGAH NIE] Berkas dokumen NIE pemerintah asli "${fileName}" berhasil diunggah untuk proyek "${proj.name}". Komparasi visual kini aktif.`,
+          targetRoles: [Role.PRODUK, Role.ADMINISTRATOR],
         };
         setNotifications(prev => [notif, ...prev]);
         saveNotificationToFirestore(notif);
@@ -1036,6 +1050,7 @@ export default function App() {
         timestamp: currentSimulatedTime,
         type: "INFO",
         message: `[RILIS UTAMA] ✓ BERHASIL DI-RELEASE! Proyek "${proj.name}" telah ditandatangani penuh oleh Purchasing (${picName}) dan dikunci permanen. Dokumen siap dicetak!`,
+        targetRoles: [Role.DESAIN, Role.PRODUK, Role.PURCHASING, Role.ADMINISTRATOR],
       };
       setNotifications(prev => [notif, ...prev]);
       saveNotificationToFirestore(notif);
@@ -1064,6 +1079,7 @@ export default function App() {
         timestamp: currentSimulatedTime,
         type: "WARNING",
         message: `[HOLD CETAKAN] Proyek "${proj.name}" ditangguhkan (HOLD) oleh Purchasing dengan estimasi batas hingga ${new Date(holdUntil).toLocaleString("id-ID")}. Alasan: ${reason}.`,
+        targetRoles: [Role.PURCHASING, Role.ADMINISTRATOR],
       };
       setNotifications(prev => [notif, ...prev]);
       saveNotificationToFirestore(notif);
@@ -1089,6 +1105,7 @@ export default function App() {
         timestamp: currentSimulatedTime,
         type: "INFO",
         message: `[HOLD CETAKAN] Waktu Hold untuk Proyek "${proj.name}" ditambah hingga ${new Date(newHoldUntil).toLocaleString("id-ID")}.`,
+        targetRoles: [Role.PURCHASING, Role.ADMINISTRATOR],
       };
       setNotifications(prev => [notif, ...prev]);
       saveNotificationToFirestore(notif);
@@ -1111,6 +1128,7 @@ export default function App() {
           timestamp: currentSimulatedTime,
           type: "WARNING",
           message: `[HAPUS] Proyek "${proj.name}" telah dihapus secara permanen oleh Administrator.`,
+          targetRoles: [Role.ADMINISTRATOR],
         };
         saveNotificationToFirestore(notif);
       }
@@ -1212,8 +1230,8 @@ export default function App() {
         </div>
       </header>
 
-      {/* EXPIRED HOLD CETAKAN ALARM BANNER */}
-      {(() => {
+      {/* EXPIRED HOLD CETAKAN ALARM BANNER (ONLY FOR PURCHASING & ADMIN) */}
+      {(currentUser.role === Role.PURCHASING || currentUser.role === Role.ADMINISTRATOR) && (() => {
         const expiredHolds = projects.filter(p => 
           p.status === ProjectStatus.HOLD_PURCHASING && 
           p.holdUntil && 

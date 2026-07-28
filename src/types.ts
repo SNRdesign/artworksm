@@ -130,4 +130,5 @@ export interface NotificationLog {
   message: string;
   projectId?: string;
   projectName?: string;
+  targetRoles?: Role[];
 }
