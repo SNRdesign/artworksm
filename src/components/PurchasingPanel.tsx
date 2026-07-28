@@ -37,6 +37,7 @@ interface PurchasingPanelProps {
   onRelease: (projectId: string, picName: string) => void;
   onHold?: (projectId: string, holdUntil: string, reason: string) => void;
   onUpdateHoldTime?: (projectId: string, newHoldUntil: string) => void;
+  onResumePrinting?: (projectId: string) => void;
   onDeleteProject?: (projectId: string) => void;
   currentSimulatedTime?: string;
 }
@@ -47,6 +48,7 @@ export default function PurchasingPanel({
   onRelease,
   onHold,
   onUpdateHoldTime,
+  onResumePrinting,
   onDeleteProject,
   currentSimulatedTime = new Date().toISOString(),
 }: PurchasingPanelProps) {
@@ -380,14 +382,11 @@ ${309 + streamLength + 45}
   const handleResumePrinting = () => {
     if (!selectedProject) return;
     
-    // Move project back to approved product so they can sign & release
-    selectedProject.status = ProjectStatus.APPROVED_PRODUCT;
-    selectedProject.holdUntil = undefined;
-    selectedProject.holdReason = undefined;
-    selectedProject.holdAlarmSet = false;
+    if (onResumePrinting) {
+      onResumePrinting(selectedProject.id);
+    }
     
     setWarningMessage("");
-    setSelectedProjectId(selectedProject.id); // Refresh state
   };
 
   return (

@@ -30,17 +30,24 @@ export const NOTIFICATIONS_COL = 'notifications';
 // --- Realtime Sync Helpers ---
 
 // Subscribe to Users collection
-export function subscribeUsers(callback: (users: UserAccount[]) => void) {
+export function subscribeUsers(
+  callback: (users: UserAccount[]) => void,
+  onError?: (err: Error) => void
+) {
   return onSnapshot(collection(db, USERS_COL), (snapshot) => {
     const list: UserAccount[] = snapshot.docs.map((docSnap) => docSnap.data() as UserAccount);
     callback(list);
   }, (err) => {
     console.error("Firestore users subscription error:", err);
+    if (onError) onError(err);
   });
 }
 
 // Subscribe to Projects collection
-export function subscribeProjects(callback: (projects: Project[]) => void) {
+export function subscribeProjects(
+  callback: (projects: Project[]) => void,
+  onError?: (err: Error) => void
+) {
   return onSnapshot(collection(db, PROJECTS_COL), async (snapshot) => {
     const rawList: Project[] = snapshot.docs.map((docSnap) => docSnap.data() as Project);
     
@@ -54,17 +61,22 @@ export function subscribeProjects(callback: (projects: Project[]) => void) {
     callback(hydratedList);
   }, (err) => {
     console.error("Firestore projects subscription error:", err);
+    if (onError) onError(err);
   });
 }
 
 // Subscribe to Notifications collection
-export function subscribeNotifications(callback: (logs: NotificationLog[]) => void) {
+export function subscribeNotifications(
+  callback: (logs: NotificationLog[]) => void,
+  onError?: (err: Error) => void
+) {
   return onSnapshot(collection(db, NOTIFICATIONS_COL), (snapshot) => {
     const list: NotificationLog[] = snapshot.docs.map((docSnap) => docSnap.data() as NotificationLog);
     list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     callback(list);
   }, (err) => {
     console.error("Firestore notifications subscription error:", err);
+    if (onError) onError(err);
   });
 }
 
@@ -93,8 +105,12 @@ export function sanitizeForFirestore<T>(obj: T): T {
 export async function saveUserToFirestore(user: UserAccount) {
   try {
     await setDoc(doc(db, USERS_COL, user.id), sanitizeForFirestore(user), { merge: true });
-  } catch (err) {
-    console.error("Error saving user to Firestore:", err);
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
+      console.warn("Firestore write quota exceeded for saveUser. Saved locally.");
+    } else {
+      console.error("Error saving user to Firestore:", err);
+    }
   }
 }
 
@@ -142,28 +158,31 @@ export async function hydrateProjectFiles(project: Project): Promise<Project> {
   let pdfUrl = project.pdfFileUrl;
   let nieUrl = project.nieFileUrl;
 
-  // 1. Check local IndexedDB first
+  const pdfCacheKey = `pdf_${project.id}_${project.updatedAt || project.version || 'v1'}`;
+  const nieCacheKey = `nie_${project.id}_${project.updatedAt || 'v1'}`;
+
+  // 1. Check versioned local IndexedDB first
   if (!pdfUrl) {
-    const cachedPdf = await getFileFromIndexedDB(`pdf_${project.id}`);
+    const cachedPdf = await getFileFromIndexedDB(pdfCacheKey);
     if (cachedPdf) pdfUrl = cachedPdf;
   }
   if (!nieUrl) {
-    const cachedNie = await getFileFromIndexedDB(`nie_${project.id}`);
+    const cachedNie = await getFileFromIndexedDB(nieCacheKey);
     if (cachedNie) nieUrl = cachedNie;
   }
 
-  // 2. Fetch chunks from Firestore if flagged and missing
+  // 2. Fetch latest chunks from Firestore if flagged and missing or updated
   if (!pdfUrl && (project as any).hasPdfChunks) {
     pdfUrl = await loadChunksFromFirestore(project.id, "pdfChunks");
     if (pdfUrl) {
-      await saveFileToIndexedDB(`pdf_${project.id}`, pdfUrl);
+      await saveFileToIndexedDB(pdfCacheKey, pdfUrl);
     }
   }
 
   if (!nieUrl && (project as any).hasNieChunks) {
     nieUrl = await loadChunksFromFirestore(project.id, "nieChunks");
     if (nieUrl) {
-      await saveFileToIndexedDB(`nie_${project.id}`, nieUrl);
+      await saveFileToIndexedDB(nieCacheKey, nieUrl);
     }
   }
 
@@ -182,8 +201,11 @@ export async function saveProjectToFirestore(project: Project) {
     let hasPdfChunks = Boolean((project as any).hasPdfChunks);
     let hasNieChunks = Boolean((project as any).hasNieChunks);
 
+    const pdfCacheKey = `pdf_${project.id}_${project.updatedAt || project.version || 'v1'}`;
+    const nieCacheKey = `nie_${project.id}_${project.updatedAt || 'v1'}`;
+
     if (project.pdfFileUrl) {
-      await saveFileToIndexedDB(`pdf_${project.id}`, project.pdfFileUrl);
+      await saveFileToIndexedDB(pdfCacheKey, project.pdfFileUrl);
       if (project.pdfFileUrl.length > CHUNK_SIZE) {
         hasPdfChunks = true;
         await saveChunksToFirestore(project.id, "pdfChunks", project.pdfFileUrl);
@@ -194,7 +216,7 @@ export async function saveProjectToFirestore(project: Project) {
     }
 
     if (project.nieFileUrl) {
-      await saveFileToIndexedDB(`nie_${project.id}`, project.nieFileUrl);
+      await saveFileToIndexedDB(nieCacheKey, project.nieFileUrl);
       if (project.nieFileUrl.length > CHUNK_SIZE) {
         hasNieChunks = true;
         await saveChunksToFirestore(project.id, "nieChunks", project.nieFileUrl);
@@ -214,7 +236,11 @@ export async function saveProjectToFirestore(project: Project) {
 
     await setDoc(doc(db, PROJECTS_COL, project.id), docToSave, { merge: true });
   } catch (err: any) {
-    console.error("Error saving project to Firestore:", err);
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
+      console.warn("Firestore write quota exceeded for saveProject. Saved in IndexedDB/Local storage.");
+    } else {
+      console.error("Error saving project to Firestore:", err);
+    }
   }
 }
 
@@ -222,8 +248,12 @@ export async function saveProjectToFirestore(project: Project) {
 export async function deleteProjectFromFirestore(projectId: string) {
   try {
     await deleteDoc(doc(db, PROJECTS_COL, projectId));
-  } catch (err) {
-    console.error("Error deleting project from Firestore:", err);
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
+      console.warn("Firestore write quota exceeded for deleteProject.");
+    } else {
+      console.error("Error deleting project from Firestore:", err);
+    }
   }
 }
 
@@ -231,8 +261,12 @@ export async function deleteProjectFromFirestore(projectId: string) {
 export async function deleteUserFromFirestore(userId: string) {
   try {
     await deleteDoc(doc(db, USERS_COL, userId));
-  } catch (err) {
-    console.error("Error deleting user from Firestore:", err);
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
+      console.warn("Firestore write quota exceeded for deleteUser.");
+    } else {
+      console.error("Error deleting user from Firestore:", err);
+    }
   }
 }
 
@@ -245,8 +279,12 @@ export async function clearNotificationsInFirestore() {
       batch.delete(docSnap.ref);
     });
     await batch.commit();
-  } catch (err) {
-    console.error("Error clearing notifications in Firestore:", err);
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
+      console.warn("Firestore write quota exceeded for clearNotifications.");
+    } else {
+      console.error("Error clearing notifications in Firestore:", err);
+    }
   }
 }
 
@@ -254,8 +292,12 @@ export async function clearNotificationsInFirestore() {
 export async function saveNotificationToFirestore(log: NotificationLog) {
   try {
     await setDoc(doc(db, NOTIFICATIONS_COL, log.id), sanitizeForFirestore(log), { merge: true });
-  } catch (err) {
-    console.error("Error saving notification to Firestore:", err);
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
+      console.warn("Firestore write quota exceeded for saveNotification.");
+    } else {
+      console.error("Error saving notification to Firestore:", err);
+    }
   }
 }
 

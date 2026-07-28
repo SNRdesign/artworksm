@@ -381,6 +381,91 @@ export default function App() {
     }
   }, [currentUser, isLoggedIn]);
 
+  // --- CROSS-TAB & DIVISION REALTIME BROADCAST ENGINE ---
+  const broadcastProjectsUpdate = (updatedProjects: Project[]) => {
+    if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+      try {
+        const bc = new BroadcastChannel("sansico_realtime_sync");
+        const safeProjects = updatedProjects.map(p => ({
+          ...p,
+          pdfFileUrl: p.pdfFileUrl && p.pdfFileUrl.length > 50000 ? undefined : p.pdfFileUrl,
+          nieFileUrl: p.nieFileUrl && p.nieFileUrl.length > 50000 ? undefined : p.nieFileUrl,
+        }));
+        bc.postMessage({ type: "SYNC_PROJECTS", data: safeProjects });
+        bc.close();
+      } catch (e) {}
+    }
+  };
+
+  const broadcastUsersUpdate = (updatedUsers: UserAccount[]) => {
+    if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+      try {
+        const bc = new BroadcastChannel("sansico_realtime_sync");
+        bc.postMessage({ type: "SYNC_USERS", data: updatedUsers });
+        bc.close();
+      } catch (e) {}
+    }
+  };
+
+  const broadcastNotifsUpdate = (updatedNotifs: NotificationLog[]) => {
+    if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+      try {
+        const bc = new BroadcastChannel("sansico_realtime_sync");
+        bc.postMessage({ type: "SYNC_NOTIFS", data: updatedNotifs });
+        bc.close();
+      } catch (e) {}
+    }
+  };
+
+  useEffect(() => {
+    let channel: BroadcastChannel | null = null;
+    if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+      try {
+        channel = new BroadcastChannel("sansico_realtime_sync");
+        channel.onmessage = (event: MessageEvent) => {
+          const { type, data } = event.data || {};
+          if (type === "SYNC_PROJECTS" && Array.isArray(data)) {
+            setProjects(data);
+          } else if (type === "SYNC_USERS" && Array.isArray(data)) {
+            setUsers(data);
+          } else if (type === "SYNC_NOTIFS" && Array.isArray(data)) {
+            setNotifications(data);
+          }
+        };
+      } catch (e) {
+        console.warn("BroadcastChannel error:", e);
+      }
+    }
+
+    const handleStorageEvent = (e: StorageEvent) => {
+      if (e.key === "sansico_projects" && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) setProjects(parsed);
+        } catch (err) {}
+      }
+      if (e.key === "sansico_users" && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) setUsers(parsed);
+        } catch (err) {}
+      }
+      if (e.key === "sansico_notifications" && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) setNotifications(parsed);
+        } catch (err) {}
+      }
+    };
+
+    window.addEventListener("storage", handleStorageEvent);
+
+    return () => {
+      if (channel) channel.close();
+      window.removeEventListener("storage", handleStorageEvent);
+    };
+  }, []);
+
   useEffect(() => {
     try {
       // Strip heavy base64 strings specifically for localStorage to avoid 5MB quota errors without corrupting PDF base64
@@ -390,6 +475,7 @@ export default function App() {
         nieFileUrl: p.nieFileUrl && p.nieFileUrl.length > 50000 ? undefined : p.nieFileUrl,
       }));
       localStorage.setItem("sansico_projects", JSON.stringify(safeProjects));
+      broadcastProjectsUpdate(projects);
     } catch (e) {
       console.warn("Failed to sync projects to localStorage:", e);
     }
@@ -398,6 +484,7 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem("sansico_users", JSON.stringify(users));
+      broadcastUsersUpdate(users);
     } catch (e) {
       console.warn("Failed to sync users to localStorage:", e);
     }
@@ -406,32 +493,43 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem("sansico_notifications", JSON.stringify(notifications));
+      broadcastNotifsUpdate(notifications);
     } catch (e) {
       console.warn("Failed to sync notifications to localStorage:", e);
     }
   }, [notifications]);
 
   // --- FIRESTORE REALTIME SUBSCRIPTIONS & INITIAL SEEDING ---
+  const [isDbConnected, setIsDbConnected] = useState<boolean>(true);
+
   useEffect(() => {
     // Seed initial data if collections are empty
     seedInitialFirestoreData(DEFAULT_USERS, DEFAULT_PROJECTS, []);
 
+    const handleSubError = (err: Error) => {
+      console.warn("Firestore subscription error encountered:", err);
+      setIsDbConnected(false);
+    };
+
     // Subscribe to Users collection
     const unsubUsers = subscribeUsers((firestoreUsers) => {
+      setIsDbConnected(true);
       if (firestoreUsers.length > 0) {
         setUsers(firestoreUsers);
       }
-    });
+    }, handleSubError);
 
     // Subscribe to Projects collection
     const unsubProjects = subscribeProjects((firestoreProjects) => {
+      setIsDbConnected(true);
       setProjects(firestoreProjects);
-    });
+    }, handleSubError);
 
     // Subscribe to Notifications collection
     const unsubNotifs = subscribeNotifications((firestoreNotifs) => {
+      setIsDbConnected(true);
       setNotifications(firestoreNotifs);
-    });
+    }, handleSubError);
 
     return () => {
       unsubUsers();
@@ -439,6 +537,23 @@ export default function App() {
       unsubNotifs();
     };
   }, []);
+
+  // Synchronize currentUser with real-time updates from Firestore users collection
+  useEffect(() => {
+    if (users.length > 0 && currentUser) {
+      const updatedSelf = users.find(
+        (u) => u.id === currentUser.id || u.email.toLowerCase() === currentUser.email.toLowerCase()
+      );
+      if (
+        updatedSelf &&
+        (updatedSelf.role !== currentUser.role ||
+          updatedSelf.fullName !== currentUser.fullName ||
+          updatedSelf.isActive !== currentUser.isActive)
+      ) {
+        setCurrentUser(updatedSelf);
+      }
+    }
+  }, [users, currentUser]);
 
   // --- BROWSER NOTIFICATION SYSTEM (HTML5 Notification API) ---
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() => {
@@ -555,13 +670,19 @@ export default function App() {
         // Silently check if any background warnings are triggered
         const newAlerts = checkTimeBasedEvents(projects, prev, nextTime);
         if (newAlerts.length > 0) {
-          newAlerts.forEach(saveNotificationToFirestore);
+          const freshAlerts = newAlerts.filter(
+            alert => !notifications.some(existing => existing.message === alert.message)
+          );
+          if (freshAlerts.length > 0) {
+            freshAlerts.forEach(saveNotificationToFirestore);
+            setNotifications(p => [...freshAlerts, ...p]);
+          }
         }
         return nextTime;
       });
-    }, 10000); // every 10 seconds
+    }, 30000); // 30 seconds
     return () => clearInterval(interval);
-  }, [projects]);
+  }, [projects, notifications]);
 
   // --- DETEKSI ALARM HOLD EXPIRED (TIM PURCHASING) ---
   useEffect(() => {
@@ -1113,6 +1234,35 @@ export default function App() {
     }
   };
 
+  // TIM PURCHASING: MELANJUTKAN PROSES CETAK (RESUME PRINTING)
+  const handlePurchasingResumePrinting = (projectId: string) => {
+    const proj = projects.find(p => p.id === projectId);
+    if (proj) {
+      const updatedProj: Project = {
+        ...proj,
+        status: ProjectStatus.APPROVED_PRODUCT,
+        holdUntil: undefined,
+        holdReason: undefined,
+        holdAlarmSet: false,
+        updatedAt: currentSimulatedTime,
+        lastStatusChangedAt: currentSimulatedTime,
+      };
+
+      setProjects(prev => prev.map(p => p.id === projectId ? updatedProj : p));
+      saveProjectToFirestore(updatedProj);
+
+      const notif: NotificationLog = {
+        id: `sys-resume-${Date.now()}`,
+        timestamp: currentSimulatedTime,
+        type: "INFO",
+        message: `[HOLD CETAKAN] Proyek "${proj.name}" dilanjutkan untuk rilis cetak oleh Tim Purchasing.`,
+        targetRoles: [Role.PURCHASING, Role.PRODUK, Role.DESAIN, Role.ADMINISTRATOR],
+      };
+      setNotifications(prev => [notif, ...prev]);
+      saveNotificationToFirestore(notif);
+    }
+  };
+
   // ADMINISTRATOR: DELETE PROJECT (CRUD Access)
   const handleDeleteProject = (projectId: string) => {
     const proj = projects.find(p => p.id === projectId);
@@ -1173,6 +1323,16 @@ export default function App() {
               <span className="text-[11px] font-sans">
                 {realtimeDate.toLocaleDateString("id-ID", { weekday: "short", day: "numeric", month: "short", year: "numeric" })} • {realtimeDate.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })} WIB
               </span>
+            </div>
+
+            {/* Database Realtime Connection Status Badge */}
+            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[11px] font-bold font-sans transition-all duration-200 ${
+              isDbConnected 
+                ? "bg-emerald-50 text-emerald-800 border-emerald-200" 
+                : "bg-blue-50 text-blue-800 border-blue-200"
+            }`}>
+              <span className={`w-2 h-2 rounded-full shrink-0 ${isDbConnected ? "bg-emerald-500 animate-pulse" : "bg-blue-500"}`}></span>
+              <span>{isDbConnected ? "Firestore Terhubung (Realtime Cloud)" : "Database Realtime Aktif (Mode Sync Multi-Tab)"}</span>
             </div>
 
             {/* Active User Badge */}
@@ -1251,31 +1411,7 @@ export default function App() {
                     </div>
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => {
-                          // Kepastian lanjut cetak -> move back to APPROVED_PRODUCT
-                          setProjects(prev => prev.map(proj => {
-                            if (proj.id === p.id) {
-                              return {
-                                ...proj,
-                                status: ProjectStatus.APPROVED_PRODUCT,
-                                holdUntil: undefined,
-                                holdReason: undefined,
-                                holdAlarmSet: false,
-                                updatedAt: currentSimulatedTime,
-                              };
-                            }
-                            return proj;
-                          }));
-                          setNotifications(prev => [
-                            {
-                              id: `sys-resume-${Date.now()}`,
-                              timestamp: currentSimulatedTime,
-                              type: "INFO",
-                              message: `[HOLD CETAKAN] Proyek "${p.name}" dilanjutkan untuk rilis cetak oleh Purchasing setelah alarm habis.`,
-                            },
-                            ...prev
-                          ]);
-                        }}
+                        onClick={() => handlePurchasingResumePrinting(p.id)}
                         className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-3 py-1.5 rounded-lg text-[10px] transition cursor-pointer"
                       >
                         Lanjut Cetak
@@ -1523,6 +1659,7 @@ export default function App() {
               onRelease={handlePurchasingRelease}
               onHold={handlePurchasingHold}
               onUpdateHoldTime={handlePurchasingUpdateHoldTime}
+              onResumePrinting={handlePurchasingResumePrinting}
               onDeleteProject={handleDeleteProject}
               currentSimulatedTime={currentSimulatedTime}
             />
