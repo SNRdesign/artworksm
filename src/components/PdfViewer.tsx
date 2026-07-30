@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
+import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { 
   ZoomIn, 
   ZoomOut, 
@@ -13,9 +14,9 @@ import {
   X
 } from "lucide-react";
 
-// Configure worker URL using jsDelivr CDN matching version
+// Configure worker URL using Vite local asset import to avoid CDN/CORS errors
 if (typeof window !== "undefined" && pdfjsLib.GlobalWorkerOptions) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version || "4.10.38"}/build/pdf.worker.min.mjs`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 }
 
 interface PdfViewerProps {
@@ -25,6 +26,7 @@ interface PdfViewerProps {
   maxHeight?: string;
   showControls?: boolean;
   onPageChange?: (page: number) => void;
+  onTotalPagesChange?: (total: number) => void;
   currentPage?: number;
 }
 
@@ -32,7 +34,7 @@ function dataUrlToUint8Array(dataUrl: string): Uint8Array {
   try {
     const base64Index = dataUrl.indexOf(";base64,");
     if (base64Index !== -1) {
-      const base64 = dataUrl.substring(base64Index + 8);
+      const base64 = dataUrl.substring(base64Index + 8).replace(/\s/g, "");
       const binaryString = window.atob(base64);
       const len = binaryString.length;
       const bytes = new Uint8Array(len);
@@ -54,11 +56,14 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   maxHeight = "450px",
   showControls = true,
   onPageChange,
+  onTotalPagesChange,
   currentPage,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const modalCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const renderTaskRef = useRef<any>(null);
+  const modalRenderTaskRef = useRef<any>(null);
 
   const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const [pageNum, setPageNum] = useState<number>(currentPage || 1);
@@ -66,6 +71,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const [scale, setScale] = useState<number>(1.0); // 1.0 = 100% fit
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [useIframeFallback, setUseIframeFallback] = useState<boolean>(false);
   const [isFullscreenModalOpen, setIsFullscreenModalOpen] = useState<boolean>(false);
 
   // Sync with external currentPage if provided
@@ -101,10 +107,13 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     )
   );
 
-  // Reset zoom & page when URL changes
+  // Reset states when URL changes
   useEffect(() => {
+    setPdfDoc(null);
     setScale(1.0);
     setPageNum(1);
+    setError(null);
+    setUseIframeFallback(false);
   }, [url]);
 
   // Load PDF document
@@ -129,13 +138,34 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           }
           loadingTask = pdfjsLib.getDocument({ data: bytes });
         } else {
-          loadingTask = pdfjsLib.getDocument({ url });
+          try {
+            loadingTask = pdfjsLib.getDocument({ url });
+            const doc = await loadingTask.promise;
+            if (isMounted) {
+              setPdfDoc(doc);
+              setNumPages(doc.numPages);
+              if (onTotalPagesChange) onTotalPagesChange(doc.numPages);
+              setPageNum(1);
+              setLoading(false);
+            }
+            return;
+          } catch (firstErr: any) {
+            console.warn("Direct URL pdfjs load failed, trying fetch arrayBuffer fallback...", firstErr);
+            const resp = await fetch(url);
+            if (!resp.ok) {
+              throw new Error(`HTTP error ${resp.status}`);
+            }
+            const buffer = await resp.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            loadingTask = pdfjsLib.getDocument({ data: bytes });
+          }
         }
 
         const doc = await loadingTask.promise;
         if (isMounted) {
           setPdfDoc(doc);
           setNumPages(doc.numPages);
+          if (onTotalPagesChange) onTotalPagesChange(doc.numPages);
           setPageNum(1);
           setLoading(false);
         }
@@ -155,9 +185,26 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     };
   }, [url, isImage]);
 
-  // Render Page onto Canvas
-  const renderCanvasOnTarget = async (targetCanvas: HTMLCanvasElement | null, containerWidthOverride?: number) => {
+  // Render Page onto Canvas safely with task cancellation
+  const renderCanvasOnTarget = async (
+    targetCanvas: HTMLCanvasElement | null, 
+    containerWidthOverride?: number, 
+    isModal = false
+  ) => {
     if (!pdfDoc || !targetCanvas || isImage) return;
+
+    // Cancel existing render task for this target
+    if (isModal) {
+      if (modalRenderTaskRef.current) {
+        try { modalRenderTaskRef.current.cancel(); } catch (e) {}
+        modalRenderTaskRef.current = null;
+      }
+    } else {
+      if (renderTaskRef.current) {
+        try { renderTaskRef.current.cancel(); } catch (e) {}
+        renderTaskRef.current = null;
+      }
+    }
 
     try {
       const page = await pdfDoc.getPage(pageNum);
@@ -184,7 +231,14 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         viewport: viewport,
       };
 
-      await page.render(renderContext).promise;
+      const task = page.render(renderContext);
+      if (isModal) {
+        modalRenderTaskRef.current = task;
+      } else {
+        renderTaskRef.current = task;
+      }
+
+      await task.promise;
     } catch (err: any) {
       if (err?.name !== "RenderingCancelledException") {
         console.error("Canvas render error:", err);
@@ -193,12 +247,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   };
 
   useEffect(() => {
-    renderCanvasOnTarget(canvasRef.current);
+    renderCanvasOnTarget(canvasRef.current, undefined, false);
   }, [pdfDoc, pageNum, scale, isImage]);
 
   useEffect(() => {
     if (isFullscreenModalOpen) {
-      renderCanvasOnTarget(modalCanvasRef.current, Math.min(window.innerWidth - 80, 1000));
+      renderCanvasOnTarget(modalCanvasRef.current, Math.min(window.innerWidth - 80, 1000), true);
     }
   }, [isFullscreenModalOpen, pdfDoc, pageNum, scale, isImage]);
 
@@ -331,25 +385,40 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           </div>
         )}
 
-        {error && (
-          <div className="flex flex-col items-center justify-center py-8 px-4 text-center text-rose-300 bg-rose-950/40 rounded-xl border border-rose-900/60 max-w-sm z-10 shadow-lg">
+        {error && !useIframeFallback && (
+          <div className="flex flex-col items-center justify-center py-6 px-4 text-center text-rose-300 bg-slate-900/90 rounded-xl border border-rose-900/60 max-w-md z-10 shadow-lg w-full">
             <AlertCircle className="w-7 h-7 text-rose-400 mb-2" />
-            <span className="text-xs font-bold mb-1">Gagal Memuat Pratinjau PDF</span>
+            <span className="text-xs font-bold mb-1">Pratinjau Canvas PDF Mengalami Kendala</span>
             <span className="text-[11px] text-slate-400 mb-3">{error}</span>
-            {url && (
+            <div className="flex items-center gap-2 flex-wrap justify-center">
               <button
                 type="button"
-                onClick={toggleFullscreenModal}
-                className="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-3.5 py-2 rounded-lg transition cursor-pointer shadow-md"
+                onClick={() => setUseIframeFallback(true)}
+                className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-3.5 py-2 rounded-lg transition cursor-pointer shadow-md active:scale-95"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
-                Buka Mode Layar Penuh
+                Tampilkan Frame PDF Native
               </button>
-            )}
+              <button
+                type="button"
+                onClick={openInNewTab}
+                className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs px-3 py-2 rounded-lg transition cursor-pointer border border-slate-700"
+              >
+                Tab Baru
+              </button>
+            </div>
           </div>
         )}
 
-        {!loading && !error && (
+        {useIframeFallback && url && (
+          <iframe 
+            src={url} 
+            title={fileName || "PDF Native Preview"} 
+            className="w-full h-[400px] rounded-lg border border-slate-700 bg-white"
+          />
+        )}
+
+        {!loading && !error && !useIframeFallback && (
           isImage ? (
             <div className="relative shadow-2xl rounded overflow-hidden bg-slate-900/50 p-2 flex items-center justify-center transition-all duration-150">
               <img

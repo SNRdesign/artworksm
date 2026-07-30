@@ -5,8 +5,9 @@
 
 import React, { useState, useEffect } from "react";
 import { Project, ProjectStatus, UserAccount, Role } from "../types";
-import { dataUrlToBlobUrl } from "../lib/fileStorage";
+import { dataUrlToBlobUrl, getFileFromIndexedDB } from "../lib/fileStorage";
 import { PdfViewer } from "./PdfViewer";
+import { downloadProjectPdf, generateArtworkPdfDataUrl } from "../lib/pdfGenerator";
 import { 
   ShieldCheck, 
   AlertOctagon, 
@@ -26,6 +27,7 @@ import {
   FileCheck,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   Info,
   ExternalLink,
   FolderArchive
@@ -127,13 +129,44 @@ export default function PurchasingPanel({
     });
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || null;
+  const [activePdfUrl, setActivePdfUrl] = useState<string>("");
 
   useEffect(() => {
     setIsChecklistChecked(false);
     setWarningMessage("");
     setShowHoldForm(false);
     setHoldReason("");
-  }, [selectedProjectId]);
+
+    if (!selectedProject) {
+      setActivePdfUrl("");
+      return;
+    }
+
+    let isMounted = true;
+    async function loadPdf() {
+      if (selectedProject?.pdfFileUrl) {
+        if (isMounted) setActivePdfUrl(selectedProject.pdfFileUrl);
+      } else {
+        try {
+          const versionKey = `pdf_${selectedProject.id}_${selectedProject.updatedAt || selectedProject.version || 'v1'}`;
+          let cached = await getFileFromIndexedDB(versionKey);
+          if (!cached) {
+            cached = await getFileFromIndexedDB(`pdf_${selectedProject.id}`);
+          }
+          if (cached && isMounted) {
+            setActivePdfUrl(cached);
+          } else if (isMounted) {
+            setActivePdfUrl(generateArtworkPdfDataUrl(selectedProject));
+          }
+        } catch (e) {
+          console.warn("Could not load PDF from IndexedDB in PurchasingPanel:", e);
+          if (isMounted) setActivePdfUrl(generateArtworkPdfDataUrl(selectedProject));
+        }
+      }
+    }
+    loadPdf();
+    return () => { isMounted = false; };
+  }, [selectedProject?.id, selectedProject?.pdfFileUrl, selectedProject?.updatedAt]);
 
   const toggleRevisionExpand = (projectId: string) => {
     setExpandedRevisions((prev) => ({
@@ -172,164 +205,13 @@ export default function PurchasingPanel({
     revisionNotesStr?: string, 
     targetArtworkText?: string
   ) => {
-    const vNum = targetVersion || proj.version;
-    const cleanProjName = proj.name.replace(/[^a-zA-Z0-9_-]/g, "_");
-    const fileName = targetVersion && targetVersion !== proj.version
-      ? `${cleanProjName}_Layout_V${vNum}.pdf`
-      : proj.pdfFileName || `${cleanProjName}_Layout_V${vNum}.pdf`;
-
-    const artworkContent = targetArtworkText || proj.artworkText || "";
-
-    // 1. If project has actual pdfFileUrl and downloading current version
-    if (proj.pdfFileUrl && (!targetVersion || targetVersion === proj.version)) {
-      try {
-        if (proj.pdfFileUrl.startsWith("data:")) {
-          const parts = proj.pdfFileUrl.split(";base64,");
-          if (parts.length === 2) {
-            const contentType = parts[0].split(":")[1] || "application/pdf";
-            const raw = window.atob(parts[1]);
-            const rawLength = raw.length;
-            const uInt8Array = new Uint8Array(rawLength);
-            for (let i = 0; i < rawLength; ++i) {
-              uInt8Array[i] = raw.charCodeAt(i);
-            }
-            const isImage = contentType.includes("image");
-            const blob = new Blob([uInt8Array], { type: isImage ? contentType : "application/pdf" });
-            const url = URL.createObjectURL(blob);
-            
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = isImage ? fileName.replace(/\.pdf$/i, ".png") : fileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-            return;
-          }
-        }
-      } catch (err) {
-        console.error("Gagal mendownload berkas asli, menggunakan PDF generator:", err);
-      }
-
-      if (proj.pdfFileUrl.startsWith("blob:") || proj.pdfFileUrl.startsWith("http")) {
-        const link = document.createElement("a");
-        link.href = proj.pdfFileUrl;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        return;
-      }
-    }
-
-    // 2. Generate valid PDF document blob tailored to this exact project/version
-    const sanitize = (text: string) => {
-      if (!text) return "";
-      return text
-        .replace(/\\/g, "\\\\")
-        .replace(/\(/g, "\\(")
-        .replace(/\)/g, "\\)")
-        .replace(/[^\x20-\x7E]/g, " ");
-    };
-
-    const pName = sanitize(proj.name);
-    const docType = sanitize(proj.docType);
-    const refCode = sanitize(proj.refCode);
-    const nieNumber = sanitize(proj.nieNumber);
-    const createdBy = sanitize(proj.createdBy);
-    const uploadDate = sanitize(proj.pdfUploadedAt ? new Date(proj.pdfUploadedAt).toLocaleString("id-ID") : "-");
-    const productPic = sanitize(proj.productPic || proj.productStamp?.stampedBy || "Lead Product Team");
-    const purchasingPic = sanitize(proj.purchasingPic || proj.purchasingStamp?.stampedBy || "Citra (Lead Purchasing)");
-    const releaseDate = sanitize(proj.purchasingApprovedAt ? new Date(proj.purchasingApprovedAt).toLocaleString("id-ID") : new Date().toLocaleString("id-ID"));
-    const hash = sanitize(proj.purchasingStamp?.hash || `HASH-${proj.id.toUpperCase()}-V${vNum}-SIGN-OK`);
-
-    const rawLines = artworkContent.split("\n");
-
-    const pdfTextLines: string[] = [
-      `BT`,
-      `/F1 14 Tf`,
-      `40 800 Td (SANSICO MEDICA INDONESIA - ARTWORK CETAK RESMI) Tj`,
-      `/F1 9 Tf`,
-      `0 -20 Td (=================================================================================) Tj`,
-      `0 -15 Td (DOKUMEN RESMI ARSIP & HISTORI CETAKAN ARTWORK ALKES) Tj`,
-      `0 -10 Td (=================================================================================) Tj`,
-      `0 -25 Td (1. IDENTITAS DOKUMEN ARTWORK) Tj`,
-      `0 -15 Td (   ID Proyek                    : ${sanitize(proj.id)}) Tj`,
-      `0 -15 Td (   Nama Produk / Alat Kesehatan : ${pName}) Tj`,
-      `0 -15 Td (   Jenis Kemasan / Dokumen    : ${docType}   |   Versi Artwork : V${vNum}) Tj`,
-      `0 -15 Td (   Kode Produk (REF Code)     : ${refCode}) Tj`,
-      `0 -15 Td (   Nomor Izin Edar (NIE)       : ${nieNumber}) Tj`,
-      `0 -15 Td (   Desainer PIC               : ${createdBy}   |   Tgl Unggah : ${uploadDate}) Tj`,
-      `0 -25 Td (2. PERSETUJUAN & STEMPEL DIGITAL) Tj`,
-      `0 -15 Td (   ACC Tim Produk (PIC)       : ${productPic}) Tj`,
-      `0 -15 Td (   Release Tim Purchasing (PIC): ${purchasingPic}) Tj`,
-      `0 -15 Td (   Tanggal Release Cetak       : ${releaseDate}) Tj`,
-      `0 -15 Td (   Kode Stempel Digital (Hash) : ${hash}) Tj`,
-    ];
-
-    if (revisionNotesStr) {
-      pdfTextLines.push(`0 -15 Td (   Catatan Revisi Versi Ini   : ${sanitize(revisionNotesStr)}) Tj`);
-    }
-
-    pdfTextLines.push(`0 -25 Td (3. KONTEN TEKS KEMASAN (ARTWORK TEXT CONTENT)) Tj`);
-
-    for (let i = 0; i < Math.min(rawLines.length, 15); i++) {
-      const line = sanitize(rawLines[i].trim());
-      if (line) {
-        pdfTextLines.push(`0 -13 Td (   * ${line.slice(0, 75)}) Tj`);
-      }
-    }
-
-    pdfTextLines.push(`0 -25 Td (=================================================================================) Tj`);
-    pdfTextLines.push(`0 -15 Td (DOKUMEN INI SAH DITERBITKAN OLEH SISTEM UNTUK VERIFIKASI VENDOR CETAK) Tj`);
-    pdfTextLines.push(`0 -10 Td (=================================================================================) Tj`);
-    pdfTextLines.push(`ET`);
-
-    const streamContent = pdfTextLines.join("\n");
-    const streamLength = streamContent.length;
-
-    const pdfStructure = `%PDF-1.4
-1 0 obj
-<< /Type /Catalog /Pages 2 0 R >>
-endobj
-2 0 obj
-<< /Type /Pages /Kids [3 0 R] /Count 1 >>
-endobj
-3 0 obj
-<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /MediaBox [0 0 595 842] /Contents 5 0 R >>
-endobj
-4 0 obj
-<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
-endobj
-5 0 obj
-<< /Length ${streamLength} >>
-stream
-${streamContent}
-endstream
-endobj
-xref
-0 6
-0000000000 65535 f 
-0000000009 00000 n 
-0000000058 00000 n 
-0000000115 00000 n 
-0000000238 00000 n 
-0000000309 00000 n 
-trailer
-<< /Size 6 /Root 1 0 R >>
-startxref
-${309 + streamLength + 45}
-%%EOF`;
-
-    const blob = new Blob([pdfStructure], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const activeUrl = proj.id === selectedProject?.id ? activePdfUrl : proj.pdfFileUrl;
+    downloadProjectPdf({
+      ...proj,
+      pdfFileUrl: activeUrl || proj.pdfFileUrl,
+      version: targetVersion || proj.version,
+      artworkText: targetArtworkText || proj.artworkText,
+    });
   };
 
   const handleReleaseSubmit = () => {
@@ -506,6 +388,19 @@ ${309 + streamLength + 45}
           <div className="lg:col-span-2">
             {selectedProject ? (
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-5">
+                {/* Top Navigation & Return/Close button */}
+                <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200/80 mb-2">
+                  <button
+                    onClick={() => setSelectedProjectId("")}
+                    className="bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs py-1.5 px-3 rounded-lg border border-slate-300 shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                    id="btn-close-purchasing-preview"
+                  >
+                    <ChevronRight className="w-4 h-4 rotate-180 text-slate-500" />
+                    <span>← Kembali / Tutup Pratinjau</span>
+                  </button>
+                  <span className="text-[10px] text-slate-400 font-mono font-semibold">Pratinjau Aktif</span>
+                </div>
+
                 <div className="border-b border-slate-100 pb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div>
                     {selectedProject.status === ProjectStatus.HOLD_PURCHASING ? (
@@ -621,48 +516,55 @@ ${309 + streamLength + 45}
 
                 {/* PDF & Document Image Reference Card */}
                 <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-5 space-y-4">
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-800 uppercase mb-1 font-display tracking-wider">
-                      Dokumen Cetak ACC & Pratinjau Gambar
-                    </h4>
-                    <p className="text-[11px] text-slate-400 font-medium">
-                      Silakan periksa pratinjau gambar dokumen serta unduh file cetakan resmi yang telah disetujui (ACC) oleh Tim Produk:
-                    </p>
+                  <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-800 uppercase mb-0.5 font-display tracking-wider">
+                        Dokumen Cetak ACC & Pratinjau Berkas Asli
+                      </h4>
+                      <p className="text-[11px] text-slate-400 font-medium">
+                        Pratinjau dan unduh berkas asli yang telah disetujui (ACC) oleh Tim Produk persis sesuai yang dikirim Tim Desain:
+                      </p>
+                    </div>
+                    <span className="text-[9px] font-mono font-bold bg-indigo-50 border border-indigo-200 text-indigo-900 px-2.5 py-1 rounded-md shrink-0">
+                      REF: {selectedProject.refCode || "N/A"}
+                    </span>
                   </div>
 
-                  {/* Document Image Preview if available */}
-                  {selectedProject.pdfFileUrl && (
-                    <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-xs text-center space-y-2">
-                      <span className="text-[9px] font-mono text-slate-400 font-bold uppercase block">Pratinjau Visual Dokumen Cetak</span>
-                      <PdfViewer
-                        url={selectedProject.pdfFileUrl}
-                        fileName={selectedProject.pdfFileName || selectedProject.name}
-                        maxHeight="320px"
-                      />
+                  {/* Document Image Preview */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-xs text-center space-y-2">
+                    <div className="flex items-center justify-between text-[9px] font-mono text-slate-400 font-bold uppercase px-1">
+                      <span>PRATINJAU SAMA PERSIS SESUAI BERKAS TIM DESAIN</span>
+                      <span className="text-indigo-400">LAYOUT V{selectedProject.version}</span>
                     </div>
-                  )}
+                    <PdfViewer
+                      url={activePdfUrl || selectedProject.pdfFileUrl || generateArtworkPdfDataUrl(selectedProject)}
+                      fileName={selectedProject.pdfFileName || selectedProject.name}
+                      maxHeight="420px"
+                    />
+                  </div>
 
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200/60 p-3.5 rounded-xl text-xs text-slate-700 shadow-sm">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-indigo-100 p-3.5 rounded-xl text-xs text-slate-700 shadow-sm">
                     <div className="flex items-center gap-2.5 truncate">
                       <FileText className="w-5 h-5 text-rose-500 flex-shrink-0" />
                       <div className="truncate text-left">
-                        <span className="text-[8px] text-slate-400 block font-sans uppercase tracking-wider font-bold">Dokumen Rilis Cetak Utama</span>
-                        <strong className="font-mono text-[10px] text-slate-800 block truncate">
+                        <span className="text-[8px] text-slate-400 block font-sans uppercase tracking-wider font-bold">Berkas Artwork Cetak Utama (Tim Desain)</span>
+                        <strong className="font-mono text-[10px] text-indigo-950 block truncate">
                           {selectedProject.pdfFileName || `${selectedProject.name.replace(/\s+/g, '_')}_Layout_V${selectedProject.version}.pdf`}
                         </strong>
                         <span className="text-[9px] text-slate-400 font-medium block mt-0.5">
-                          Ukuran: {selectedProject.pdfFileSize || "1.2 MB"} • Versi: V{selectedProject.version}
+                          Ukuran: {selectedProject.pdfFileSize || "1.2 MB"} • Kode Kontrol REF: <strong className="text-indigo-900 font-mono font-bold">{selectedProject.refCode || "N/A"}</strong> • Versi: V{selectedProject.version}
                         </span>
                       </div>
                     </div>
 
                     <button
+                      type="button"
                       onClick={() => handleDownloadPdf(selectedProject)}
-                      className="flex items-center justify-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold py-2 px-3 rounded-lg transition duration-150 cursor-pointer shadow-sm shrink-0"
-                      title="Unduh Cetakan ACC"
+                      className="flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold py-2.5 px-3.5 rounded-xl transition duration-150 cursor-pointer shadow-sm shrink-0 active:scale-95"
+                      title="Unduh Berkas Desain Lengkap"
                     >
-                      <Download className="w-3.5 h-3.5" />
-                      Unduh Cetakan
+                      <Download className="w-4 h-4 text-white" />
+                      <span>UNDUH DOKUMEN CETAK (FULL)</span>
                     </button>
                   </div>
                 </div>

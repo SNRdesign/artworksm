@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Project, DocType, ProjectStatus, UserAccount, RevisionNotes, Role } from "../types";
-import { dataUrlToBlobUrl } from "../lib/fileStorage";
+import { dataUrlToBlobUrl, getFileFromIndexedDB } from "../lib/fileStorage";
 import { PdfViewer } from "./PdfViewer";
+import { downloadProjectPdf, generateArtworkPdfDataUrl } from "../lib/pdfGenerator";
 import { 
   CheckCircle, 
   XCircle, 
@@ -21,6 +22,7 @@ import {
   Sparkles,
   Info,
   ExternalLink,
+  ShieldCheck,
   Trash2
 } from "lucide-react";
 
@@ -76,114 +78,44 @@ export default function ProductPanel({
   });
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || null;
+  const [activePdfUrl, setActivePdfUrl] = useState<string>("");
 
-  const handleDownloadPdf = (proj: Project) => {
-    const fileName = proj.pdfFileName || `${proj.name.replace(/\s+/g, "_")}_Layout_V${proj.version}.pdf`;
-    
-    // If the project has an actual uploaded file URL (base64 or blob URL), download it directly!
-    if (proj.pdfFileUrl) {
-      try {
-        if (proj.pdfFileUrl.startsWith("data:")) {
-          const parts = proj.pdfFileUrl.split(";base64,");
-          if (parts.length === 2) {
-            const contentType = parts[0].split(":")[1] || "application/octet-stream";
-            const raw = window.atob(parts[1]);
-            const rawLength = raw.length;
-            const uInt8Array = new Uint8Array(rawLength);
-            for (let i = 0; i < rawLength; ++i) {
-              uInt8Array[i] = raw.charCodeAt(i);
-            }
-            const blob = new Blob([uInt8Array], { type: contentType });
-            const url = URL.createObjectURL(blob);
-            
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = fileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-            return;
-          }
-        }
-      } catch (err) {
-        console.error("Gagal mendownload berkas asli:", err);
-      }
-
-      const link = document.createElement("a");
-      link.href = proj.pdfFileUrl;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+  useEffect(() => {
+    if (!selectedProject) {
+      setActivePdfUrl("");
       return;
     }
+    let isMounted = true;
+    async function loadPdf() {
+      if (selectedProject?.pdfFileUrl) {
+        if (isMounted) setActivePdfUrl(selectedProject.pdfFileUrl);
+      } else {
+        try {
+          const versionKey = `pdf_${selectedProject.id}_${selectedProject.updatedAt || selectedProject.version || 'v1'}`;
+          let cached = await getFileFromIndexedDB(versionKey);
+          if (!cached) {
+            cached = await getFileFromIndexedDB(`pdf_${selectedProject.id}`);
+          }
+          if (cached && isMounted) {
+            setActivePdfUrl(cached);
+          } else if (isMounted) {
+            setActivePdfUrl(generateArtworkPdfDataUrl(selectedProject));
+          }
+        } catch (e) {
+          console.warn("Could not load PDF from IndexedDB:", e);
+          if (isMounted) setActivePdfUrl(generateArtworkPdfDataUrl(selectedProject));
+        }
+      }
+    }
+    loadPdf();
+    return () => { isMounted = false; };
+  }, [selectedProject?.id, selectedProject?.pdfFileUrl, selectedProject?.updatedAt]);
 
-    // Fallback: Create a beautifully formatted PostScript / text representation that conforms to a valid tiny PDF file
-    const simulatedPdfContent = `%PDF-1.4
-%
-1 0 obj
-<< /Type /Catalog /Pages 2 0 R >>
-endobj
-2 0 obj
-<< /Type /Pages /Kids [3 0 R] /Count 1 >>
-endobj
-3 0 obj
-<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /MediaBox [0 0 595 842] /Contents 5 0 R >>
-endobj
-4 0 obj
-<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
-endobj
-5 0 obj
-<< /Length 450 >>
-stream
-BT
-/F1 16 Tf
-50 800 Td (SANSICO MEDICA - ARTWORK APPROVAL SYSTEM) Tj
-/F1 10 Tf
-0 -40 Td (========================================================================) Tj
-0 -20 Td (DOKUMEN DETAIL ARTWORK UNTUK VERIFIKASI MANUAL) Tj
-0 -10 Td (========================================================================) Tj
-0 -30 Td (PROJECT ID: ${proj.id}) Tj
-0 -20 Td (NAMA ALAT KESEHATAN (PRODUK): ${proj.name}) Tj
-0 -20 Td (TIPE DOKUMEN: ${proj.docType}) Tj
-0 -20 Td (VERSI ARTWORK: V${proj.version}) Tj
-0 -20 Td (KODE PRODUK (REF): ${proj.refCode}) Tj
-0 -20 Td (NOMOR IZIN EDAR (NIE): ${proj.nieNumber}) Tj
-0 -20 Td (DESAINER: ${proj.createdBy}) Tj
-0 -20 Td (TANGGAL UNGGAH: ${proj.pdfUploadedAt ? new Date(proj.pdfUploadedAt).toLocaleString("id-ID") : "-"}) Tj
-0 -30 Td (KONTEN TEKS LENGKAP PADA DESAIN:) Tj
-0 -20 Td (${proj.artworkText.slice(0, 70)}) Tj
-0 -15 Td (${proj.artworkText.slice(70, 140)}) Tj
-0 -15 Td (${proj.artworkText.slice(140, 210)}) Tj
-0 -30 Td (========================================================================) Tj
-0 -20 Td (SANSICO MEDICA QUALITY ASSURANCE AND REGULATORY COMPLIANCE SYSTEM) Tj
-ET
-endstream
-endobj
-xref
-0 6
-0000000000 65535 f 
-0000000015 00000 n 
-0000000062 00000 n 
-0000000121 00000 n 
-0000000244 00000 n 
-0000000315 00000 n 
-trailer
-<< /Size 6 /Root 1 0 R >>
-startxref
-765
-%%EOF`;
-
-    const blob = new Blob([simulatedPdfContent], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  const handleDownloadPdf = (proj: Project) => {
+    downloadProjectPdf({
+      ...proj,
+      pdfFileUrl: activePdfUrl || proj.pdfFileUrl,
+    });
   };
 
   // Define checklists based on DocType
@@ -429,6 +361,19 @@ startxref
         <div className="lg:col-span-2 space-y-6">
           {selectedProject ? (
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-6">
+              {/* Top Navigation & Return/Close button */}
+              <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200/80 mb-2">
+                <button
+                  onClick={() => setSelectedProjectId("")}
+                  className="bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs py-1.5 px-3 rounded-lg border border-slate-300 shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                  id="btn-close-product-preview"
+                >
+                  <ChevronRight className="w-4 h-4 rotate-180 text-slate-500" />
+                  <span>← Kembali / Tutup Pratinjau</span>
+                </button>
+                <span className="text-[10px] text-slate-400 font-mono font-semibold">Pratinjau Aktif</span>
+              </div>
+
               {/* Active Selected Project Heading */}
               <div className="border-b border-slate-100 pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
@@ -455,8 +400,8 @@ startxref
                     </button>
                   )}
                   <div className="text-right">
-                    <span className="text-[9px] text-slate-400 block font-mono uppercase tracking-wider font-bold">Kode Kontrol</span>
-                    <span className="font-mono text-xs text-slate-800 font-extrabold">{selectedProject.id}</span>
+                    <span className="text-[9px] text-slate-400 block font-mono uppercase tracking-wider font-bold">Kode Kontrol (REF)</span>
+                    <span className="font-mono text-xs text-indigo-900 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-md font-extrabold">{selectedProject.refCode || "N/A"}</span>
                   </div>
                 </div>
               </div>
@@ -468,17 +413,16 @@ startxref
                 </div>
               )}
 
-              {/* Full Width Designer's Layout Viewer */}
+              {/* Full Width Designer's Layout Viewer & Document Files */}
               <div className="w-full">
-                {/* 1. Artwork Design Layout */}
                 <div className="border border-indigo-100 rounded-2xl p-4 bg-indigo-50/20 flex flex-col space-y-3">
                   <div className="flex items-center justify-between border-b border-indigo-100/50 pb-2">
                     <span className="text-[10px] uppercase font-bold text-indigo-900 font-display tracking-wider flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
-                      LAYOUT DESAIN ASLI (BERKAS DESAINER)
+                      PRATINJAU DOKUMEN & BERKAS ASLI DARI TIM DESAIN
                     </span>
-                    <span className="text-[8px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-mono font-bold">
-                      VERIFIKASI AKTIF
+                    <span className="text-[9px] font-mono font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-md">
+                      KODE KONTROL (REF): {selectedProject.refCode || "N/A"}
                     </span>
                   </div>
 
@@ -487,91 +431,51 @@ startxref
                     <div className="flex items-center gap-2.5 min-w-0">
                       <FileText className="w-5 h-5 text-rose-500 flex-shrink-0" />
                       <div className="truncate text-left">
-                        <span className="text-[8px] text-slate-400 block font-sans uppercase tracking-wider font-bold">Nama Berkas Desainer</span>
+                        <span className="text-[8px] text-slate-400 block font-sans uppercase tracking-wider font-bold">Berkas Artwork Desain Asli (Tim Desain)</span>
                         <strong className="font-mono text-[10px] text-indigo-950 block truncate" title={selectedProject.pdfFileName}>
                           {selectedProject.pdfFileName || `${selectedProject.name.replace(/\s+/g, '_')}_Layout_V${selectedProject.version}.pdf`}
                         </strong>
                         <span className="text-[9px] text-slate-400 font-medium block mt-0.5">
-                          Ukuran: {selectedProject.pdfFileSize || "1.2 MB"} • Diunggah {new Date(selectedProject.pdfUploadedAt || selectedProject.updatedAt).toLocaleDateString("id-ID", { hour: "2-digit", minute: "2-digit" })}
+                          Ukuran: {selectedProject.pdfFileSize || "1.2 MB"} • Desainer: <strong className="text-slate-700">{selectedProject.createdBy}</strong> • REF: <strong className="text-indigo-900 font-mono font-bold">{selectedProject.refCode || "N/A"}</strong>
                         </span>
                       </div>
                     </div>
                     <button
                       type="button"
                       onClick={() => handleDownloadPdf(selectedProject)}
-                      className="flex-shrink-0 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-100/60 p-2 rounded-xl transition duration-150 flex items-center gap-1 cursor-pointer font-extrabold font-sans text-[10px] shadow-xs active:scale-95"
-                      title="Unduh Berkas Desain untuk Verifikasi"
+                      className="flex-shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white p-2 px-3 rounded-xl transition duration-150 flex items-center gap-1.5 cursor-pointer font-extrabold font-sans text-[11px] shadow-sm active:scale-95"
+                      title="Unduh Berkas Desain Asli yang Dikirim Tim Desain"
                     >
-                      <Download className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>UNDUH PDF</span>
+                      <Download className="w-4 h-4 text-white" />
+                      <span>UNDUH DOKUMEN DESAIN (FULL)</span>
                     </button>
                   </div>
 
                   {/* Visual Document Viewer Simulator */}
                   <div className="bg-slate-100 border border-slate-200 shadow-sm rounded-xl overflow-hidden flex flex-col">
-                    {/* PDF Reader Toolbar */}
                     <div className="bg-slate-800 text-slate-300 px-3 py-1.5 flex items-center justify-between font-mono text-[9px] border-b border-slate-700 select-none">
-                      <span className="flex items-center gap-1">
+                      <span className="flex items-center gap-1.5">
                         <Eye className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>ACROBAT LAYOUT VIEWER</span>
+                        <span>PRATINJAU SAMA PERSIS SESUAI BERKAS TIM DESAIN</span>
                       </span>
                       <span className="bg-slate-700 px-1.5 py-0.5 rounded text-[8px] font-bold text-slate-200">
-                        PAGE 1 OF 1
+                        LAYOUT V{selectedProject.version}
                       </span>
                     </div>
 
                     {/* PDF Content Area */}
-                    <div className="p-3 bg-slate-900 min-h-[300px] flex items-center justify-center relative">
-                      {selectedProject.pdfFileUrl ? (
-                        <PdfViewer 
-                          url={selectedProject.pdfFileUrl} 
-                          fileName={selectedProject.pdfFileName || selectedProject.name}
-                          maxHeight="420px"
-                        />
-                      ) : (
-                        /* Beautiful high-fidelity simulated packaging layout if pdfFileUrl is missing */
-                        <div className="bg-white border border-slate-300 shadow-xl rounded p-4 relative w-full text-[10px] text-slate-800 flex flex-col justify-between select-none min-h-[220px]">
-                          {/* Watermark */}
-                          <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none select-none">
-                            <span className="text-rose-700 font-black text-[22px] tracking-widest border-4 border-rose-700 p-2 rounded-xl rotate-12 uppercase">SIMULASI ORIGINAL</span>
-                          </div>
-                          
-                          {/* Margin line indicators */}
-                          <div className="absolute inset-1.5 border border-dashed border-rose-200/50 pointer-events-none rounded"></div>
-                          
-                          {/* Fold guides simulation */}
-                          <div className="absolute top-0 bottom-0 left-1/3 border-r border-dashed border-slate-200/40 pointer-events-none"></div>
-                          <div className="absolute top-0 bottom-0 left-2/3 border-r border-dashed border-slate-200/40 pointer-events-none"></div>
-
-                          <div className="flex justify-between items-start pb-2 border-b border-slate-100 relative z-10">
-                            <div>
-                              <span className="text-[7px] bg-indigo-50 text-indigo-700 font-bold px-1.5 py-0.5 rounded uppercase tracking-wider block mb-0.5">SANSICO MEDICA®</span>
-                              <h4 className="font-bold text-slate-900 text-xs truncate max-w-[140px]">{selectedProject.name}</h4>
-                            </div>
-                            <span className="text-[8px] bg-slate-100 border border-slate-200 text-slate-700 font-mono px-1 rounded font-bold shrink-0">
-                              {selectedProject.refCode || "REF-BLANK"}
-                            </span>
-                          </div>
-
-                          <div className="my-3 space-y-1.5 text-[9px] text-slate-600 font-mono relative z-10">
-                            <div>NIE: <span className="font-bold text-slate-800 bg-slate-100 px-1 py-0.5 rounded">{selectedProject.nieNumber || "Belum Ada / Tidak Diisi"}</span></div>
-                            <div className="text-[8px] text-slate-400 whitespace-pre-wrap leading-normal font-sans border-t border-slate-100 pt-1 font-medium max-h-[70px] overflow-hidden">
-                              {selectedProject.artworkText}
-                            </div>
-                          </div>
-
-                          <div className="flex justify-between items-center text-[7px] text-slate-400 border-t border-slate-100 pt-1 relative z-10">
-                            <span>SANSICO MULTI-REGION</span>
-                            <span>Tipe: {selectedProject.docType}</span>
-                          </div>
-                        </div>
-                      )}
+                    <div className="p-3 bg-slate-900 min-h-[320px] flex items-center justify-center relative">
+                      <PdfViewer 
+                        url={activePdfUrl || selectedProject.pdfFileUrl || generateArtworkPdfDataUrl(selectedProject)} 
+                        fileName={selectedProject.pdfFileName || selectedProject.name}
+                        maxHeight="450px"
+                      />
                     </div>
                   </div>
                   
                   <div className="mt-1 text-[10px] text-slate-400 font-medium italic leading-normal flex items-start gap-1">
                     <Info className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                    <span>Periksa kejelasan huruf, letak penulisan, dan simbol pada jaring-jaring box.</span>
+                    <span>Dokumen di atas adalah berkas asli yang diunggah oleh tim desain. Tim produk dapat memeriksa pratinjau dan mengunduh berkas lengkap tanpa perubahan. Kode Kontrol telah disesuaikan dengan REF dokumen.</span>
                   </div>
                 </div>
               </div>

@@ -161,13 +161,19 @@ export async function hydrateProjectFiles(project: Project): Promise<Project> {
   const pdfCacheKey = `pdf_${project.id}_${project.updatedAt || project.version || 'v1'}`;
   const nieCacheKey = `nie_${project.id}_${project.updatedAt || 'v1'}`;
 
-  // 1. Check versioned local IndexedDB first
+  // 1. Check local IndexedDB first (both versioned and legacy keys)
   if (!pdfUrl) {
-    const cachedPdf = await getFileFromIndexedDB(pdfCacheKey);
+    let cachedPdf = await getFileFromIndexedDB(pdfCacheKey);
+    if (!cachedPdf) {
+      cachedPdf = await getFileFromIndexedDB(`pdf_${project.id}`);
+    }
     if (cachedPdf) pdfUrl = cachedPdf;
   }
   if (!nieUrl) {
-    const cachedNie = await getFileFromIndexedDB(nieCacheKey);
+    let cachedNie = await getFileFromIndexedDB(nieCacheKey);
+    if (!cachedNie) {
+      cachedNie = await getFileFromIndexedDB(`nie_${project.id}`);
+    }
     if (cachedNie) nieUrl = cachedNie;
   }
 
@@ -176,6 +182,7 @@ export async function hydrateProjectFiles(project: Project): Promise<Project> {
     pdfUrl = await loadChunksFromFirestore(project.id, "pdfChunks");
     if (pdfUrl) {
       await saveFileToIndexedDB(pdfCacheKey, pdfUrl);
+      await saveFileToIndexedDB(`pdf_${project.id}`, pdfUrl);
     }
   }
 
@@ -183,6 +190,7 @@ export async function hydrateProjectFiles(project: Project): Promise<Project> {
     nieUrl = await loadChunksFromFirestore(project.id, "nieChunks");
     if (nieUrl) {
       await saveFileToIndexedDB(nieCacheKey, nieUrl);
+      await saveFileToIndexedDB(`nie_${project.id}`, nieUrl);
     }
   }
 
@@ -206,6 +214,7 @@ export async function saveProjectToFirestore(project: Project) {
 
     if (project.pdfFileUrl) {
       await saveFileToIndexedDB(pdfCacheKey, project.pdfFileUrl);
+      await saveFileToIndexedDB(`pdf_${project.id}`, project.pdfFileUrl);
       if (project.pdfFileUrl.length > CHUNK_SIZE) {
         hasPdfChunks = true;
         await saveChunksToFirestore(project.id, "pdfChunks", project.pdfFileUrl);
@@ -217,6 +226,7 @@ export async function saveProjectToFirestore(project: Project) {
 
     if (project.nieFileUrl) {
       await saveFileToIndexedDB(nieCacheKey, project.nieFileUrl);
+      await saveFileToIndexedDB(`nie_${project.id}`, project.nieFileUrl);
       if (project.nieFileUrl.length > CHUNK_SIZE) {
         hasNieChunks = true;
         await saveChunksToFirestore(project.id, "nieChunks", project.nieFileUrl);

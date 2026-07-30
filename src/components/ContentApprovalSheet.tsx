@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { Project } from "../types";
-import { ShieldCheck, Printer, Stamp, FileCheck, CheckCircle2, FileText, Image as ImageIcon, ExternalLink } from "lucide-react";
-import { dataUrlToBlobUrl } from "../lib/fileStorage";
+import { ShieldCheck, Printer, Stamp, FileCheck, CheckCircle2, FileText, Image as ImageIcon, ExternalLink, Loader2 } from "lucide-react";
+import { dataUrlToBlobUrl, getFileFromIndexedDB } from "../lib/fileStorage";
+import { generateArtworkPdfDataUrl } from "../lib/pdfGenerator";
 import { PdfViewer } from "./PdfViewer";
 import { printApprovalSheetA4 } from "../lib/printUtils";
 
@@ -17,7 +18,52 @@ interface ContentApprovalSheetProps {
 }
 
 export default function ContentApprovalSheet({ project, onPrint, onPageChange }: ContentApprovalSheetProps) {
-  const [selectedPage, setSelectedPage] = React.useState<number>(1);
+  const [selectedPage, setSelectedPage] = useState<number>(1);
+  const [totalPages, setTotalPages] = useState<number>(1);
+  const [effectivePdfUrl, setEffectivePdfUrl] = useState<string>(project.pdfFileUrl || "");
+  const [loadingPdf, setLoadingPdf] = useState<boolean>(!project.pdfFileUrl);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadPdf() {
+      if (project.pdfFileUrl) {
+        if (isMounted) {
+          setEffectivePdfUrl(project.pdfFileUrl);
+          setLoadingPdf(false);
+        }
+        return;
+      }
+
+      setLoadingPdf(true);
+      try {
+        const versionKey = `pdf_${project.id}_${project.updatedAt || project.version || 'v1'}`;
+        let cached = await getFileFromIndexedDB(versionKey);
+        if (!cached) {
+          cached = await getFileFromIndexedDB(`pdf_${project.id}`);
+        }
+        if (cached && isMounted) {
+          setEffectivePdfUrl(cached);
+          setLoadingPdf(false);
+          return;
+        }
+      } catch (e) {
+        console.warn("Could not load PDF from IndexedDB in ContentApprovalSheet:", e);
+      }
+
+      if (isMounted) {
+        try {
+          const generated = generateArtworkPdfDataUrl(project);
+          setEffectivePdfUrl(generated);
+        } catch (err) {
+          console.error("Failed generating artwork pdf data url:", err);
+        }
+        setLoadingPdf(false);
+      }
+    }
+
+    loadPdf();
+    return () => { isMounted = false; };
+  }, [project.id, project.pdfFileUrl, project.version, project.updatedAt]);
 
   const handlePageChange = (page: number) => {
     setSelectedPage(page);
@@ -137,14 +183,50 @@ export default function ContentApprovalSheet({ project, onPrint, onPageChange }:
             </span>
           </div>
 
-          {/* Render actual uploaded image/PDF if available */}
-          {project.pdfFileUrl ? (
+          {/* Page Selection Controls Bar */}
+          {totalPages > 1 && (
+            <div className="z-10 my-2 bg-slate-900 border border-slate-800 rounded-lg p-2.5 flex flex-wrap items-center justify-between gap-2 text-white shadow-sm">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-bold tracking-wide">Pilih Halaman Desain Cetak:</span>
+                <span className="text-[10px] bg-slate-800 text-slate-300 font-mono px-2 py-0.5 rounded-full border border-slate-700">
+                  Total {totalPages} Halaman
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((pNum) => (
+                  <button
+                    key={pNum}
+                    type="button"
+                    onClick={() => handlePageChange(pNum)}
+                    className={`px-3 py-1 text-xs font-bold font-mono rounded-md transition cursor-pointer ${
+                      selectedPage === pNum
+                        ? "bg-emerald-500 text-slate-950 shadow-md ring-2 ring-emerald-400/50 scale-105"
+                        : "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+                    }`}
+                  >
+                    Hal. {pNum}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Render actual PDF / Artwork Image preview */}
+          {loadingPdf ? (
+            <div className="my-4 z-10 w-full py-12 bg-slate-900/10 rounded-lg border border-slate-200 flex flex-col items-center justify-center text-slate-600 gap-2 font-mono text-xs">
+              <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
+              <span>Memuat Pratinjau Dokumen Gambar Cetak...</span>
+            </div>
+          ) : effectivePdfUrl ? (
             <div className="my-2 z-10 w-full">
               <PdfViewer
-                url={project.pdfFileUrl}
+                url={effectivePdfUrl}
                 fileName={project.pdfFileName || project.name}
                 maxHeight="380px"
                 onPageChange={handlePageChange}
+                onTotalPagesChange={(t) => setTotalPages(t)}
                 currentPage={selectedPage}
               />
             </div>

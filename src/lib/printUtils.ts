@@ -1,16 +1,18 @@
 import { Project } from "../types";
 import * as pdfjsLib from "pdfjs-dist";
+import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { getFileFromIndexedDB } from "./fileStorage";
+import { generateArtworkPdfDataUrl } from "./pdfGenerator";
 
 if (typeof window !== "undefined" && pdfjsLib.GlobalWorkerOptions) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version || "4.10.38"}/build/pdf.worker.min.mjs`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 }
 
 function dataUrlToUint8Array(dataUrl: string): Uint8Array {
   try {
     const base64Index = dataUrl.indexOf(";base64,");
     if (base64Index !== -1) {
-      const base64 = dataUrl.substring(base64Index + 8);
+      const base64 = dataUrl.substring(base64Index + 8).replace(/\s/g, "");
       const binaryString = window.atob(base64);
       const len = binaryString.length;
       const bytes = new Uint8Array(len);
@@ -25,6 +27,34 @@ function dataUrlToUint8Array(dataUrl: string): Uint8Array {
   return new Uint8Array(0);
 }
 
+export async function extractPdfTextClientSide(urlOrDataUrl: string): Promise<string> {
+  if (!urlOrDataUrl) return "";
+  try {
+    let loadingTask: any;
+    if (urlOrDataUrl.startsWith("data:")) {
+      const bytes = dataUrlToUint8Array(urlOrDataUrl);
+      if (bytes.length === 0) return "";
+      loadingTask = pdfjsLib.getDocument({ data: bytes });
+    } else {
+      loadingTask = pdfjsLib.getDocument({ url: urlOrDataUrl });
+    }
+
+    const pdfDoc = await loadingTask.promise;
+    let combinedText = "";
+    const maxPagesToRead = Math.min(pdfDoc.numPages, 5);
+    for (let pageNum = 1; pageNum <= maxPagesToRead; pageNum++) {
+      const page = await pdfDoc.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str || "").join(" ");
+      combinedText += `Page ${pageNum}:\n${pageText}\n`;
+    }
+    return combinedText;
+  } catch (err) {
+    console.warn("Client-side PDF text extraction warning:", err);
+    return "";
+  }
+}
+
 export async function convertPdfToImageDataUrl(url: string, pageNumber: number = 1): Promise<string | null> {
   if (!url) return null;
 
@@ -32,42 +62,61 @@ export async function convertPdfToImageDataUrl(url: string, pageNumber: number =
     return url;
   }
 
-  try {
-    let loadingTask: any;
-    if (url.startsWith("data:")) {
-      const bytes = dataUrlToUint8Array(url);
-      if (bytes.length === 0) return null;
-      loadingTask = pdfjsLib.getDocument({ data: bytes });
-    } else {
-      loadingTask = pdfjsLib.getDocument({ url });
+  return new Promise<string | null>((resolve) => {
+    const timer = setTimeout(() => {
+      console.warn("PDF page image conversion timed out");
+      resolve(null);
+    }, 4000);
+
+    async function process() {
+      try {
+        let loadingTask: any;
+        if (url.startsWith("data:")) {
+          const bytes = dataUrlToUint8Array(url);
+          if (bytes.length === 0) {
+            clearTimeout(timer);
+            return resolve(null);
+          }
+          loadingTask = pdfjsLib.getDocument({ data: bytes });
+        } else {
+          loadingTask = pdfjsLib.getDocument({ url });
+        }
+
+        const pdfDoc = await loadingTask.promise;
+        const targetPage = Math.min(Math.max(1, pageNumber), pdfDoc.numPages);
+        const page = await pdfDoc.getPage(targetPage);
+
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          clearTimeout(timer);
+          return resolve(null);
+        }
+
+        const scale = 1.5;
+        const viewport = page.getViewport({ scale });
+
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+
+        const renderContext = {
+          canvasContext: ctx,
+          viewport: viewport,
+        };
+
+        await page.render(renderContext).promise;
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.80);
+        clearTimeout(timer);
+        resolve(dataUrl);
+      } catch (err) {
+        console.error("Gagal mengonversi PDF ke gambar untuk pencetakan:", err);
+        clearTimeout(timer);
+        resolve(null);
+      }
     }
 
-    const pdfDoc = await loadingTask.promise;
-    const targetPage = Math.min(Math.max(1, pageNumber), pdfDoc.numPages);
-    const page = await pdfDoc.getPage(targetPage);
-
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-
-    // Render page at scale 2.5 for crisp print quality
-    const scale = 2.5;
-    const viewport = page.getViewport({ scale });
-
-    canvas.width = Math.floor(viewport.width);
-    canvas.height = Math.floor(viewport.height);
-
-    const renderContext = {
-      canvasContext: ctx,
-      viewport: viewport,
-    };
-
-    await page.render(renderContext).promise;
-    return canvas.toDataURL("image/png");
-  } catch (err) {
-    console.error("Gagal mengonversi PDF ke gambar untuk pencetakan:", err);
-    return null;
-  }
+    process();
+  });
 }
 
 export async function printApprovalSheetA4(project: Project, pageNumber: number = 1) {
@@ -75,22 +124,32 @@ export async function printApprovalSheetA4(project: Project, pageNumber: number 
 
   if (!pdfUrl) {
     try {
-      const cached = await getFileFromIndexedDB(`pdf_${project.id}`);
+      const versionKey = `pdf_${project.id}_${project.updatedAt || project.version || 'v1'}`;
+      let cached = await getFileFromIndexedDB(versionKey);
+      if (!cached) {
+        cached = await getFileFromIndexedDB(`pdf_${project.id}`);
+      }
       if (cached) pdfUrl = cached;
     } catch (e) {
       console.warn("Could not load cached pdf from indexedDB:", e);
     }
   }
 
-  let displayImageUrl: string | null = null;
-  if (pdfUrl) {
-    displayImageUrl = await convertPdfToImageDataUrl(pdfUrl, pageNumber);
+  if (!pdfUrl) {
+    try {
+      pdfUrl = generateArtworkPdfDataUrl(project);
+    } catch (e) {
+      console.warn("Could not generate artwork pdf data url:", e);
+    }
   }
 
-  const printWindow = window.open("", "_blank", "width=900,height=1100");
-  if (!printWindow) {
-    window.print();
-    return;
+  let displayImageUrl: string | null = null;
+  if (pdfUrl) {
+    try {
+      displayImageUrl = await convertPdfToImageDataUrl(pdfUrl, pageNumber);
+    } catch (e) {
+      console.warn("Failed converting page to image for print:", e);
+    }
   }
 
   const createdDateStr = new Date(project.createdAt).toLocaleDateString("id-ID", {
@@ -107,12 +166,11 @@ export async function printApprovalSheetA4(project: Project, pageNumber: number 
     ? new Date(project.purchasingApprovedAt).toLocaleDateString("id-ID", { day: "2-digit", month: "2-digit", year: "numeric" })
     : "-";
 
-  const htmlContent = `
-<!DOCTYPE html>
+  const htmlContent = `<!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8">
-  <title>Lembar Pengesahan Cetak A4 - ${project.name}</title>
+  <title>Lembar Pengesahan Cetak A4 - ${project.name} (Hal ${pageNumber})</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
     
@@ -243,7 +301,7 @@ export async function printApprovalSheetA4(project: Project, pageNumber: number 
     }
 
     .img-preview {
-      max-height: 220px;
+      max-height: 260px;
       max-width: 100%;
       object-fit: contain;
       margin: 6px auto;
@@ -376,7 +434,7 @@ export async function printApprovalSheetA4(project: Project, pageNumber: number 
         border: none;
         padding: 0;
       }
-      .no-print-btn {
+      .no-print-bar {
         display: none !important;
       }
     }
@@ -384,10 +442,19 @@ export async function printApprovalSheetA4(project: Project, pageNumber: number 
 </head>
 <body>
 
-  <div style="text-align: right; margin-bottom: 8px;" class="no-print-btn">
-    <button onclick="window.print()" style="background:#0f172a; color:#fff; font-weight:bold; padding:8px 16px; border:none; border-radius:6px; cursor:pointer; font-size:12px;">
-      🖨️ Cetak / Simpan PDF (A4)
-    </button>
+  <div style="position: sticky; top: 0; background: #0f172a; color: #ffffff; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #10b981; font-family: sans-serif; z-index: 9999; box-shadow: 0 4px 12px rgba(0,0,0,0.25);" class="no-print-bar">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span style="font-weight:800; font-size:13px; color:#34d399;">🖨️ PRATINJAU DOKUMEN CETAK A4</span>
+      <span style="font-size:11px; color:#94a3b8;">(${project.name} - Hal. ${pageNumber})</span>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button onclick="window.print()" style="background:#10b981; color:#0f172a; font-weight:800; font-size:12px; padding:8px 16px; border:none; border-radius:6px; cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,0.2);">
+        🖨️ CETAK SEKARANG / SIMPAN PDF
+      </button>
+      <button onclick="window.close()" style="background:#334155; color:#f8fafc; font-weight:bold; font-size:12px; padding:8px 12px; border:none; border-radius:6px; cursor:pointer;">
+        Tutup Modal
+      </button>
+    </div>
   </div>
 
   <div class="a4-container">
@@ -410,7 +477,7 @@ export async function printApprovalSheetA4(project: Project, pageNumber: number 
       </div>
       <div>
         <span class="meta-label">Versi Terakhir:</span>
-        <span class="meta-value mono">V${project.version}</span>
+        <span class="meta-value mono">V${project.version} (Hal. ${pageNumber})</span>
       </div>
       <div>
         <span class="meta-label">Nomor NIE Terverifikasi:</span>
@@ -419,11 +486,11 @@ export async function printApprovalSheetA4(project: Project, pageNumber: number 
     </div>
 
     <div class="plate-box">
-      <div class="plate-title">◄── Scale 1:1 Print Ready Plate — Dokumen Visual Cetak ──►</div>
+      <div class="plate-title">◄── Scale 1:1 Print Ready Plate — Dokumen Visual Cetak (Halaman ${pageNumber}) ──►</div>
       <div class="plate-inner">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
           <div>
-            <span style="font-size:8px; color:#94a3b8; font-weight:700; text-transform:uppercase;">Berkas Layout Desain</span>
+            <span style="font-size:8px; color:#94a3b8; font-weight:700; text-transform:uppercase;">Berkas Layout Desain (Halaman ${pageNumber})</span>
             <div style="font-size:13px; font-weight:800; color:#0f172a;">${project.name}</div>
           </div>
           <span class="mono" style="background:#e2e8f0; font-size:9px; font-weight:700; padding:2px 6px; border-radius:4px;">
@@ -432,7 +499,7 @@ export async function printApprovalSheetA4(project: Project, pageNumber: number 
         </div>
 
         ${displayImageUrl ? `
-          <img src="${displayImageUrl}" class="img-preview" alt="Artwork Preview" />
+          <img src="${displayImageUrl}" class="img-preview" alt="Artwork Preview Page ${pageNumber}" />
         ` : `
           <div class="text-summary">
             <div style="font-weight:700; color:#0f172a; margin-bottom:4px;">TEKS KONTEN & SPESIFIKASI CETAK:</div>
@@ -445,7 +512,7 @@ export async function printApprovalSheetA4(project: Project, pageNumber: number 
         <div style="display:flex; justify-content:space-between; font-size:8px; color:#94a3b8; border-top:1px solid #e2e8f0; padding-top:4px; margin-top:6px;" class="mono">
           <span>SANSICO S-M</span>
           <span>MEDICALLY COMPLIANT PLATE</span>
-          <span>PLATE V${project.version}</span>
+          <span>PLATE V${project.version} (HAL. ${pageNumber})</span>
         </div>
       </div>
     </div>
@@ -541,17 +608,61 @@ export async function printApprovalSheetA4(project: Project, pageNumber: number 
   </div>
 
   <script>
-    window.onload = function() {
+    window.addEventListener('load', function() {
       setTimeout(function() {
-        window.print();
-      }, 300);
-    };
+        try {
+          window.focus();
+          window.print();
+        } catch(e) {
+          console.error("Auto print error:", e);
+        }
+      }, 400);
+    });
   </script>
 </body>
-</html>
-  `;
+</html>`;
 
-  printWindow.document.open();
-  printWindow.document.write(htmlContent);
-  printWindow.document.close();
+  try {
+    const printWin = window.open("", "_blank", "width=920,height=1000,scrollbars=yes,resizable=yes");
+    if (printWin) {
+      printWin.document.open();
+      printWin.document.write(htmlContent);
+      printWin.document.close();
+      printWin.focus();
+      return;
+    }
+  } catch (err) {
+    console.warn("Pop-up window blocked or failed, falling back to iframe print:", err);
+  }
+
+  let printIframe = document.getElementById("approval-sheet-print-iframe") as HTMLIFrameElement;
+  if (!printIframe) {
+    printIframe = document.createElement("iframe");
+    printIframe.id = "approval-sheet-print-iframe";
+    printIframe.style.position = "fixed";
+    printIframe.style.right = "0";
+    printIframe.style.bottom = "0";
+    printIframe.style.width = "0";
+    printIframe.style.height = "0";
+    printIframe.style.border = "0";
+    printIframe.style.opacity = "0";
+    printIframe.style.pointerEvents = "none";
+    document.body.appendChild(printIframe);
+  }
+
+  const iframeDoc = printIframe.contentDocument || printIframe.contentWindow?.document;
+  if (iframeDoc) {
+    iframeDoc.open();
+    iframeDoc.write(htmlContent);
+    iframeDoc.close();
+
+    setTimeout(() => {
+      try {
+        printIframe.contentWindow?.focus();
+        printIframe.contentWindow?.print();
+      } catch (err) {
+        console.error("Iframe print error:", err);
+      }
+    }, 500);
+  }
 }

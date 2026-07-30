@@ -32,6 +32,7 @@ import ContentApprovalSheet from "./components/ContentApprovalSheet";
 import LoginPage from "./components/LoginPage";
 import SansicoLogo from "./components/SansicoLogo";
 import { printApprovalSheetA4 } from "./lib/printUtils";
+import { saveFileToIndexedDB, getFileFromIndexedDB } from "./lib/fileStorage";
 
 import {
   subscribeUsers,
@@ -1325,16 +1326,6 @@ export default function App() {
               </span>
             </div>
 
-            {/* Database Realtime Connection Status Badge */}
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[11px] font-bold font-sans transition-all duration-200 ${
-              isDbConnected 
-                ? "bg-emerald-50 text-emerald-800 border-emerald-200" 
-                : "bg-blue-50 text-blue-800 border-blue-200"
-            }`}>
-              <span className={`w-2 h-2 rounded-full shrink-0 ${isDbConnected ? "bg-emerald-500 animate-pulse" : "bg-blue-500"}`}></span>
-              <span>{isDbConnected ? "Firestore Terhubung (Realtime Cloud)" : "Database Realtime Aktif (Mode Sync Multi-Tab)"}</span>
-            </div>
-
             {/* Active User Badge */}
             <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200/80 text-xs font-semibold text-slate-800">
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-pulse"></span>
@@ -1906,19 +1897,24 @@ export default function App() {
 
       {/* 5. MODAL: FULL AUTHORITATIVE APPROVAL SHEET VIEWER */}
       {viewingSheetProject && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="relative w-full max-w-4xl bg-white rounded-2xl shadow-xl p-5 overflow-hidden max-h-[90vh] flex flex-col border border-slate-100">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3 mb-4 no-print">
-              <span className="text-xs font-bold text-slate-500 flex items-center gap-1 font-display">
-                <Lock className="w-3.5 h-3.5 text-emerald-600" />
+        <div 
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setViewingSheetProject(null);
+          }}
+        >
+          <div className="relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl p-5 overflow-hidden max-h-[92vh] flex flex-col border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3 mb-4 no-print bg-slate-50/70 p-3 -mx-5 -mt-5">
+              <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5 font-display">
+                <Lock className="w-4 h-4 text-emerald-600" />
                 DOKUMEN PENGESAHAN CETAK RESMI (TERKUNCI)
               </span>
               <button
                 onClick={() => setViewingSheetProject(null)}
-                className="text-slate-400 hover:text-slate-800 text-sm font-semibold px-2.5 py-1 rounded-lg hover:bg-slate-50 transition cursor-pointer"
+                className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition cursor-pointer shadow-sm flex items-center gap-1"
                 id="btn-close-modal"
               >
-                ✕ Tutup
+                ← Kembali / Tutup Modal
               </button>
             </div>
             
@@ -1931,12 +1927,15 @@ export default function App() {
             </div>
 
             <div className="border-t border-slate-100 pt-3 mt-4 flex justify-between items-center no-print">
-              <span className="text-[10px] text-slate-400 font-mono">
-                Sistem Otentikasi Sansico Medica (A4 Layout Automatic - Halaman {sheetSelectedPage})
-              </span>
+              <button
+                onClick={() => setViewingSheetProject(null)}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2 px-4 rounded-xl transition flex items-center gap-1 cursor-pointer"
+              >
+                ← Kembali
+              </button>
               <button
                 onClick={() => printApprovalSheetA4(viewingSheetProject, sheetSelectedPage)}
-                className="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-2 px-4 rounded-lg transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+                className="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-2 px-4 rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer"
                 id="btn-print-action"
               >
                 <Printer className="w-4 h-4 text-emerald-400" />

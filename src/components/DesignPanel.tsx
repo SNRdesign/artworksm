@@ -8,6 +8,8 @@ import { Project, DocType, ProjectStatus, UserAccount, Role } from "../types";
 import { PlusCircle, Image, CheckCircle, AlertOctagon, HelpCircle, History, RefreshCw, UploadCloud, FileText, Trash2, Sparkles, Loader2, ExternalLink } from "lucide-react";
 import { dataUrlToBlobUrl } from "../lib/fileStorage";
 import { PdfViewer } from "./PdfViewer";
+import { extractPdfTextClientSide } from "../lib/printUtils";
+import { generateArtworkPdfDataUrl, downloadProjectPdf } from "../lib/pdfGenerator";
 
 interface DesignPanelProps {
   currentUser: UserAccount;
@@ -409,51 +411,16 @@ export default function DesignPanel({
           {/* PDF Grid background simulation */}
           <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:14px_24px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] opacity-30"></div>
           
-          {imageUrl ? (
-            <div className="w-full max-w-sm flex flex-col items-center select-none overflow-hidden">
-              <PdfViewer
-                url={imageUrl}
-                fileName={fileName}
-                maxHeight="280px"
-              />
-              <div className="text-[9px] text-slate-400 mt-2 font-mono flex items-center gap-1 bg-slate-900/90 px-2.5 py-1 rounded-md border border-slate-800">
-                <Sparkles className="w-3 h-3 text-indigo-400 animate-pulse" /> Terbaca: {ref || "REF- Auto"} • {nie || "NIE- Auto"}
-              </div>
+          <div className="w-full max-w-sm flex flex-col items-center select-none overflow-hidden">
+            <PdfViewer
+              url={imageUrl || generateArtworkPdfDataUrl({ name, refCode: ref, nieNumber: nie, artworkText: text, docType: docType as any })}
+              fileName={fileName}
+              maxHeight="280px"
+            />
+            <div className="text-[9px] text-slate-400 mt-2 font-mono flex items-center gap-1 bg-slate-900/90 px-2.5 py-1 rounded-md border border-slate-800">
+              <Sparkles className="w-3 h-3 text-indigo-400 animate-pulse" /> Terbaca: {ref || "REF- Auto"} • {nie || "NIE- Auto"}
             </div>
-          ) : (
-            /* Render Page */
-            <div className="bg-white border border-slate-300 shadow-xl rounded p-4 relative w-full max-w-sm text-[10px] text-slate-800 flex flex-col justify-between select-none">
-              {/* Draft stamp watermark */}
-              <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none select-none">
-                <span className="text-rose-700 font-extrabold text-[24px] tracking-widest border-4 border-rose-700 p-2 rounded-xl rotate-12 uppercase">PDF ORIGINAL LAYOUT</span>
-              </div>
-              
-              {/* Margins indicator */}
-              <div className="absolute inset-1.5 border border-dashed border-rose-200/50 pointer-events-none rounded"></div>
-              
-              <div className="flex justify-between items-start pb-2 border-b border-slate-100 relative">
-                <div>
-                  <span className="text-[7px] bg-indigo-50 text-indigo-700 font-bold px-1 py-0.5 rounded uppercase tracking-wider block mb-0.5">SANSICO MEDICA® LAYOUT</span>
-                  <h4 className="font-bold text-slate-900 text-xs truncate max-w-[180px]">{name || "DRAFT ALKES"}</h4>
-                </div>
-                <span className="text-[8px] bg-indigo-50 border border-indigo-100 text-indigo-700 font-mono px-1 rounded font-bold">
-                  {ref || "REF-XXXX"}
-                </span>
-              </div>
-
-              <div className="my-3 space-y-1 text-[9px] text-slate-600 font-mono">
-                <div>NIE: <span className="font-bold text-slate-800">{nie || "Belum Ada / Tidak Diisi"}</span></div>
-                <div className="text-[8px] text-slate-400 whitespace-pre-wrap leading-tight font-medium max-h-[70px] overflow-hidden">
-                  {text || "Teks desain layout..."}
-                </div>
-              </div>
-
-              <div className="flex justify-between items-center text-[7px] text-slate-400 border-t border-slate-100 pt-1">
-                <span>DOKUMEN INTEGRAL (ASLI)</span>
-                <span>Tipe: {docType}</span>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
         
         {/* PDF Footer Status bar */}
@@ -545,11 +512,23 @@ const fileToBase64 = (file: File): Promise<string> => {
     }, 150);
 
     try {
-      let parsed;
+      let parsed: any;
+      let clientExtractedText = "";
+
       if (fileObj) {
         // Read file as base64
         const base64Data = await fileToBase64(fileObj);
+        if (isEdit) {
+          setEditUploadedImageUrl(base64Data);
+        } else {
+          setUploadedImageUrl(base64Data);
+        }
         
+        // Attempt client-side PDF text extraction in background for high accuracy
+        if (fileObj.type === "application/pdf" || fileObj.name.toLowerCase().endsWith(".pdf")) {
+          clientExtractedText = await extractPdfTextClientSide(base64Data);
+        }
+
         // Call backend API
         const response = await fetch("/api/analyze-artwork", {
           method: "POST",
@@ -563,12 +542,15 @@ const fileToBase64 = (file: File): Promise<string> => {
           }),
         });
 
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.error || "Gagal memproses file di server.");
+        if (response.ok) {
+          parsed = await response.json();
+        } else {
+          parsed = extractMetadataFromPdf(fileName, isEdit && editingProject ? editingProject.docType : docType);
         }
 
-        parsed = await response.json();
+        if (clientExtractedText) {
+          parsed.artworkText = (parsed.artworkText ? parsed.artworkText + "\n" : "") + clientExtractedText;
+        }
       } else {
         // Mock fallback if no fileObj
         parsed = extractMetadataFromPdf(fileName, isEdit && editingProject ? editingProject.docType : docType);
@@ -607,7 +589,7 @@ const fileToBase64 = (file: File): Promise<string> => {
       }, 300);
 
     } catch (error: any) {
-      console.warn("Gemini AI extraction failed, falling back to smart filename regex parsing:", error);
+      console.warn("Extraction warning, falling back to smart filename & client-side regex parsing:", error);
       clearInterval(progressInterval);
       
       // Fallback
@@ -675,6 +657,13 @@ const fileToBase64 = (file: File): Promise<string> => {
         clearInterval(interval);
         
         const parsed = demo.extracted;
+        const generatedDemoPdf = generateArtworkPdfDataUrl({
+          name: parsed.name,
+          docType: parsed.docType,
+          refCode: parsed.refCode,
+          nieNumber: parsed.nieNumber,
+          artworkText: parsed.artworkText,
+        });
         
         if (isEdit) {
           setEditPdfFile({ name: demo.name, size: demo.size });
@@ -682,7 +671,7 @@ const fileToBase64 = (file: File): Promise<string> => {
           setEditRefCode(parsed.refCode);
           setEditNieNumber(parsed.nieNumber);
           setEditArtworkText(parsed.artworkText);
-          setEditUploadedImageUrl(null);
+          setEditUploadedImageUrl(generatedDemoPdf);
         } else {
           setPdfFile({ name: demo.name, size: demo.size });
           setIsScanning(false);
@@ -691,7 +680,7 @@ const fileToBase64 = (file: File): Promise<string> => {
           setRefCode(parsed.refCode);
           setNieNumber(parsed.nieNumber);
           setArtworkText(parsed.artworkText);
-          setUploadedImageUrl(null);
+          setUploadedImageUrl(generatedDemoPdf);
         }
       }
     }, 120);
